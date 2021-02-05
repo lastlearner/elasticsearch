@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.env;
 
@@ -51,10 +40,11 @@ public class NodeEnvironmentEvilTests extends ESTestCase {
             Settings build = Settings.builder()
                     .put(Environment.PATH_HOME_SETTING.getKey(), createTempDir().toAbsolutePath().toString())
                     .putList(Environment.PATH_DATA_SETTING.getKey(), tempPaths).build();
-            IOException ioException = expectThrows(IOException.class, () -> {
+            IllegalStateException exception = expectThrows(IllegalStateException.class, () -> {
                 new NodeEnvironment(build, TestEnvironment.newEnvironment(build));
             });
-            assertTrue(ioException.getMessage(), ioException.getMessage().startsWith(path.toString()));
+            assertTrue(exception.getCause().getCause().getMessage(),
+                exception.getCause().getCause().getMessage().startsWith(path.toString()));
         }
     }
 
@@ -62,7 +52,7 @@ public class NodeEnvironmentEvilTests extends ESTestCase {
         assumeTrue("posix filesystem", isPosix);
         final String[] tempPaths = tmpPaths();
         Path path = PathUtils.get(randomFrom(tempPaths));
-        Path fooIndex = path.resolve("nodes").resolve("0").resolve(NodeEnvironment.INDICES_FOLDER)
+        Path fooIndex = path.resolve(NodeEnvironment.INDICES_FOLDER)
             .resolve("foo");
         Files.createDirectories(fooIndex);
         try (PosixPermissionsResetter attr = new PosixPermissionsResetter(fooIndex)) {
@@ -82,7 +72,7 @@ public class NodeEnvironmentEvilTests extends ESTestCase {
         assumeTrue("posix filesystem", isPosix);
         final String[] tempPaths = tmpPaths();
         Path path = PathUtils.get(randomFrom(tempPaths));
-        Path fooIndex = path.resolve("nodes").resolve("0").resolve(NodeEnvironment.INDICES_FOLDER)
+        Path fooIndex = path.resolve(NodeEnvironment.INDICES_FOLDER)
             .resolve("foo");
         Path fooShard = fooIndex.resolve("0");
         Path fooShardIndex = fooShard.resolve("index");

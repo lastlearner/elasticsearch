@@ -1,29 +1,20 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.common;
 
 import org.elasticsearch.common.xcontent.DeprecationHandler;
+import org.elasticsearch.common.xcontent.XContentLocation;
 
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Holds a field that can be found in a request while parsing and its different
@@ -34,6 +25,7 @@ public class ParseField {
     private final String[] deprecatedNames;
     private String allReplacedWith = null;
     private final String[] allNames;
+    private boolean fullyDeprecated = false;
 
     private static final String[] EMPTY = new String[0];
 
@@ -97,6 +89,15 @@ public class ParseField {
     }
 
     /**
+     * Return a new ParseField where all field names are deprecated with no replacement
+     */
+    public ParseField withAllDeprecated() {
+        ParseField parseField = this.withDeprecation(getAllNamesIncludedDeprecated());
+        parseField.fullyDeprecated = true;
+        return parseField;
+    }
+
+    /**
      * Does {@code fieldName} match this field?
      * @param fieldName
      *            the field name to match against this {@link ParseField}
@@ -105,10 +106,26 @@ public class ParseField {
      *         names for this {@link ParseField}.
      */
     public boolean match(String fieldName, DeprecationHandler deprecationHandler) {
+        return match(null, () -> XContentLocation.UNKNOWN, fieldName, deprecationHandler);
+    }
+
+    /**
+     * Does {@code fieldName} match this field?
+     * @param parserName
+     *            the name of the parent object holding this field
+     * @param location
+     *            the XContentLocation of the field
+     * @param fieldName
+     *            the field name to match against this {@link ParseField}
+     * @param deprecationHandler called if {@code fieldName} is deprecated
+     * @return true if <code>fieldName</code> matches any of the acceptable
+     *         names for this {@link ParseField}.
+     */
+    public boolean match(String parserName, Supplier<XContentLocation> location, String fieldName, DeprecationHandler deprecationHandler) {
         Objects.requireNonNull(fieldName, "fieldName cannot be null");
         // if this parse field has not been completely deprecated then try to
         // match the preferred name
-        if (allReplacedWith == null && fieldName.equals(name)) {
+        if (fullyDeprecated == false && allReplacedWith == null && fieldName.equals(name)) {
             return true;
         }
         // Now try to match against one of the deprecated names. Note that if
@@ -116,10 +133,12 @@ public class ParseField {
         // fields will be in the deprecatedNames array
         for (String depName : deprecatedNames) {
             if (fieldName.equals(depName)) {
-                if (allReplacedWith == null) {
-                    deprecationHandler.usedDeprecatedName(fieldName, name);
+                if (fullyDeprecated) {
+                    deprecationHandler.usedDeprecatedField(parserName, location, fieldName);
+                } else if (allReplacedWith == null) {
+                    deprecationHandler.usedDeprecatedName(parserName, location, fieldName, name);
                 } else {
-                    deprecationHandler.usedDeprecatedField(fieldName, allReplacedWith);
+                    deprecationHandler.usedDeprecatedField(parserName, location, fieldName, allReplacedWith);
                 }
                 return true;
             }

@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.cli;
 
@@ -285,12 +286,12 @@ public class CertificateGenerateTool extends EnvironmentAwareCommand {
             final List<String> errors = certInfo.validate();
             if (errors.size() > 0) {
                 hasError = true;
-                terminal.println(Terminal.Verbosity.SILENT, "Configuration for instance " + certInfo.name.originalName
+                terminal.errorPrintln(Terminal.Verbosity.SILENT, "Configuration for instance " + certInfo.name.originalName
                     + " has invalid details");
                 for (String message : errors) {
-                    terminal.println(Terminal.Verbosity.SILENT, " * " + message);
+                    terminal.errorPrintln(Terminal.Verbosity.SILENT, " * " + message);
                 }
-                terminal.println("");
+                terminal.errorPrintln("");
             }
         }
         if (hasError) {
@@ -529,7 +530,7 @@ public class CertificateGenerateTool extends EnvironmentAwareCommand {
             terminal.println("      the certificate and private key will also be included in the output file.");
         }
         terminal.println("* Information about each instance");
-        terminal.println("    * An instance is any piece of the Elastic Stack that requires a SSL certificate.");
+        terminal.println("    * An instance is any piece of the Elastic Stack that requires an SSL certificate.");
         terminal.println("      Depending on your configuration, Elasticsearch, Logstash, Kibana, and Beats");
         terminal.println("      may all require a certificate and private key.");
         terminal.println("    * The minimum required value for each instance is a name. This can simply be the");

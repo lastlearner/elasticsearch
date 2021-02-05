@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.common.http;
 
@@ -44,7 +45,7 @@ public class HttpReadTimeoutTests extends ESTestCase {
                 .path("/")
                 .build();
 
-        try (HttpClient httpClient = new HttpClient(Settings.EMPTY, new SSLService(environment.settings(), environment),
+        try (HttpClient httpClient = new HttpClient(Settings.EMPTY, new SSLService(environment),
             null, mockClusterService())) {
             long start = System.nanoTime();
 
@@ -67,7 +68,7 @@ public class HttpReadTimeoutTests extends ESTestCase {
                 .build();
 
         try (HttpClient httpClient = new HttpClient(Settings.builder()
-            .put("xpack.http.default_read_timeout", "3s").build(), new SSLService(environment.settings(), environment),
+            .put("xpack.http.default_read_timeout", "3s").build(), new SSLService(environment),
             null, mockClusterService())) {
 
             long start = System.nanoTime();
@@ -91,7 +92,7 @@ public class HttpReadTimeoutTests extends ESTestCase {
                 .build();
 
         try (HttpClient httpClient = new HttpClient(Settings.builder()
-            .put("xpack.http.default_read_timeout", "10s").build(), new SSLService(environment.settings(), environment),
+            .put("xpack.http.default_read_timeout", "10s").build(), new SSLService(environment),
             null, mockClusterService())) {
 
             long start = System.nanoTime();

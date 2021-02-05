@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.action.realm;
 
@@ -11,6 +12,8 @@ import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.nodes.TransportNodesAction;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.xpack.core.security.action.realm.ClearRealmCacheAction;
@@ -19,8 +22,9 @@ import org.elasticsearch.xpack.core.security.action.realm.ClearRealmCacheRespons
 import org.elasticsearch.xpack.core.security.authc.Realm;
 import org.elasticsearch.xpack.security.authc.AuthenticationService;
 import org.elasticsearch.xpack.security.authc.Realms;
-import org.elasticsearch.xpack.security.authc.support.CachingRealm;
+import org.elasticsearch.xpack.core.security.authc.support.CachingRealm;
 
+import java.io.IOException;
 import java.util.List;
 
 public class TransportClearRealmCacheAction extends TransportNodesAction<ClearRealmCacheRequest, ClearRealmCacheResponse,
@@ -46,17 +50,17 @@ public class TransportClearRealmCacheAction extends TransportNodesAction<ClearRe
     }
 
     @Override
-    protected ClearRealmCacheRequest.Node newNodeRequest(String nodeId, ClearRealmCacheRequest request) {
-        return new ClearRealmCacheRequest.Node(request, nodeId);
+    protected ClearRealmCacheRequest.Node newNodeRequest(ClearRealmCacheRequest request) {
+        return new ClearRealmCacheRequest.Node(request);
     }
 
     @Override
-    protected ClearRealmCacheResponse.Node newNodeResponse() {
-        return new ClearRealmCacheResponse.Node();
+    protected ClearRealmCacheResponse.Node newNodeResponse(StreamInput in) throws IOException {
+        return new ClearRealmCacheResponse.Node(in);
     }
 
     @Override
-    protected ClearRealmCacheResponse.Node nodeOperation(ClearRealmCacheRequest.Node nodeRequest) throws ElasticsearchException {
+    protected ClearRealmCacheResponse.Node nodeOperation(ClearRealmCacheRequest.Node nodeRequest, Task task) throws ElasticsearchException {
         if (nodeRequest.getRealms() == null || nodeRequest.getRealms().length == 0) {
             for (Realm realm : realms) {
                 clearCache(realm, nodeRequest.getUsernames());
@@ -89,7 +93,7 @@ public class TransportClearRealmCacheAction extends TransportNodesAction<ClearRe
     }
 
     private void clearCache(Realm realm, String[] usernames) {
-        if (!(realm instanceof CachingRealm)) {
+        if ((realm instanceof CachingRealm) == false) {
             return;
         }
         CachingRealm cachingRealm = (CachingRealm) realm;

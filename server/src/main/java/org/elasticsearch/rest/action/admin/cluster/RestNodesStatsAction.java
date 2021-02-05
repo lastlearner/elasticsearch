@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.rest.action.admin.cluster;
@@ -24,15 +13,14 @@ import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags;
 import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags.Flag;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.action.RestActions.NodesResponseRestListener;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -42,37 +30,27 @@ import java.util.function.Consumer;
 import static org.elasticsearch.rest.RestRequest.Method.GET;
 
 public class RestNodesStatsAction extends BaseRestHandler {
-    public RestNodesStatsAction(Settings settings, RestController controller) {
-        super(settings);
-        controller.registerHandler(GET, "/_nodes/stats", this);
-        controller.registerHandler(GET, "/_nodes/{nodeId}/stats", this);
 
-        controller.registerHandler(GET, "/_nodes/stats/{metric}", this);
-        controller.registerHandler(GET, "/_nodes/{nodeId}/stats/{metric}", this);
-
-        controller.registerHandler(GET, "/_nodes/stats/{metric}/{index_metric}", this);
-
-        controller.registerHandler(GET, "/_nodes/{nodeId}/stats/{metric}/{index_metric}", this);
+    @Override
+    public List<Route> routes() {
+        return List.of(
+            new Route(GET, "/_nodes/stats"),
+            new Route(GET, "/_nodes/{nodeId}/stats"),
+            new Route(GET, "/_nodes/stats/{metric}"),
+            new Route(GET, "/_nodes/{nodeId}/stats/{metric}"),
+            new Route(GET, "/_nodes/stats/{metric}/{index_metric}"),
+            new Route(GET, "/_nodes/{nodeId}/stats/{metric}/{index_metric}"));
     }
 
     static final Map<String, Consumer<NodesStatsRequest>> METRICS;
 
     static {
-        final Map<String, Consumer<NodesStatsRequest>> metrics = new HashMap<>();
-        metrics.put("os", r -> r.os(true));
-        metrics.put("jvm", r -> r.jvm(true));
-        metrics.put("thread_pool", r -> r.threadPool(true));
-        metrics.put("fs", r -> r.fs(true));
-        metrics.put("transport", r -> r.transport(true));
-        metrics.put("http", r -> r.http(true));
-        metrics.put("indices", r -> r.indices(true));
-        metrics.put("process", r -> r.process(true));
-        metrics.put("breaker", r -> r.breaker(true));
-        metrics.put("script", r -> r.script(true));
-        metrics.put("discovery", r -> r.discovery(true));
-        metrics.put("ingest", r -> r.ingest(true));
-        metrics.put("adaptive_selection", r -> r.adaptiveSelection(true));
-        METRICS = Collections.unmodifiableMap(metrics);
+        Map<String, Consumer<NodesStatsRequest>> map = new HashMap<>();
+        for (NodesStatsRequest.Metric metric : NodesStatsRequest.Metric.values()) {
+            map.put(metric.metricName(), request -> request.addMetric(metric.metricName()));
+        }
+        map.put("indices", request -> request.indices(true));
+        METRICS = Collections.unmodifiableMap(map);
     }
 
     static final Map<String, Consumer<CommonStatsFlags>> FLAGS;
@@ -129,7 +107,7 @@ public class RestNodesStatsAction extends BaseRestHandler {
                 }
             }
 
-            if (!invalidMetrics.isEmpty()) {
+            if (invalidMetrics.isEmpty() == false) {
                 throw new IllegalArgumentException(unrecognized(request, invalidMetrics, METRICS.keySet(), "metric"));
             }
 
@@ -152,7 +130,7 @@ public class RestNodesStatsAction extends BaseRestHandler {
                         }
                     }
 
-                    if (!invalidIndexMetrics.isEmpty()) {
+                    if (invalidIndexMetrics.isEmpty() == false) {
                         throw new IllegalArgumentException(unrecognized(request, invalidIndexMetrics, FLAGS.keySet(), "index metric"));
                     }
 
@@ -178,9 +156,6 @@ public class RestNodesStatsAction extends BaseRestHandler {
         }
         if (nodesStatsRequest.indices().isSet(Flag.Search) && (request.hasParam("groups"))) {
             nodesStatsRequest.indices().groups(request.paramAsStringArray("groups", null));
-        }
-        if (nodesStatsRequest.indices().isSet(Flag.Indexing) && (request.hasParam("types"))) {
-            nodesStatsRequest.indices().types(request.paramAsStringArray("types", null));
         }
         if (nodesStatsRequest.indices().isSet(Flag.Segments)) {
             nodesStatsRequest.indices().includeSegmentFileSizes(request.paramAsBoolean("include_segment_file_sizes", false));

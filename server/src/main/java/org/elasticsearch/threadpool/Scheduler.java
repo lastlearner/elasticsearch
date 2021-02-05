@@ -1,26 +1,13 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.threadpool;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.settings.Settings;
@@ -33,6 +20,7 @@ import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
@@ -84,17 +72,7 @@ public interface Scheduler {
     }
 
     /**
-     * Does nothing by default but can be used by subclasses to save the current thread context and wraps the command in a Runnable
-     * that restores that context before running the command.
-     */
-    default Runnable preserveContext(Runnable command) {
-        return command;
-    }
-
-    /**
-     * Schedules a one-shot command to be run after a given delay. The command is not run in the context of the calling thread.
-     * To preserve the context of the calling thread you may call {@link #preserveContext(Runnable)} on the runnable before passing
-     * it to this method.
+     * Schedules a one-shot command to be run after a given delay. The command is run in the context of the calling thread.
      * The command runs on scheduler thread. Do not run blocking calls on the scheduler thread. Subclasses may allow
      * to execute on a different executor, in which case blocking calls are allowed.
      *
@@ -247,6 +225,14 @@ public interface Scheduler {
                 }
             }
         }
+
+        @Override
+        public String toString() {
+            return "ReschedulingRunnable{" +
+                "runnable=" + runnable +
+                ", interval=" + interval +
+                '}';
+        }
     }
 
     /**
@@ -254,7 +240,6 @@ public interface Scheduler {
      * tasks to the uncaught exception handler
      */
     class SafeScheduledThreadPoolExecutor extends ScheduledThreadPoolExecutor {
-        private static final Logger logger = LogManager.getLogger(SafeScheduledThreadPoolExecutor.class);
 
         @SuppressForbidden(reason = "properly rethrowing errors, see EsExecutors.rethrowErrors")
         public SafeScheduledThreadPoolExecutor(int corePoolSize, ThreadFactory threadFactory, RejectedExecutionHandler handler) {
@@ -276,7 +261,11 @@ public interface Scheduler {
             if (t != null) return;
             // Scheduler only allows Runnable's so we expect no checked exceptions here. If anyone uses submit directly on `this`, we
             // accept the wrapped exception in the output.
-            ExceptionsHelper.reThrowIfNotNull(EsExecutors.rethrowErrors(r));
+            if (r instanceof RunnableFuture && ((RunnableFuture<?>) r).isDone()) {
+                // only check this if task is done, which it always is except for periodic tasks. Periodic tasks will hang on
+                // RunnableFuture.get()
+                ExceptionsHelper.reThrowIfNotNull(EsExecutors.rethrowErrors(r));
+            }
         }
     }
 }

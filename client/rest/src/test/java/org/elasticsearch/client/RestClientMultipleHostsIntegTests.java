@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client;
@@ -27,6 +16,7 @@ import org.elasticsearch.mocksocket.MockHttpServer;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -35,6 +25,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -42,7 +33,9 @@ import java.util.concurrent.TimeUnit;
 import static org.elasticsearch.client.RestClientTestUtil.getAllStatusCodes;
 import static org.elasticsearch.client.RestClientTestUtil.randomErrorNoRetryStatusCode;
 import static org.elasticsearch.client.RestClientTestUtil.randomOkStatusCode;
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -52,6 +45,7 @@ import static org.junit.Assert.fail;
  */
 public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
 
+    private static WaitForCancelHandler waitForCancelHandler;
     private static HttpServer[] httpServers;
     private static HttpHost[] httpHosts;
     private static boolean stoppedFirstHost = false;
@@ -70,6 +64,7 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
         int numHttpServers = randomIntBetween(2, 4);
         httpServers = new HttpServer[numHttpServers];
         httpHosts = new HttpHost[numHttpServers];
+        waitForCancelHandler = new WaitForCancelHandler();
         for (int i = 0; i < numHttpServers; i++) {
             HttpServer httpServer = createHttpServer();
             httpServers[i] = httpServer;
@@ -94,7 +89,38 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
         for (int statusCode : getAllStatusCodes()) {
             httpServer.createContext(pathPrefix + "/" + statusCode, new ResponseHandler(statusCode));
         }
+        httpServer.createContext(pathPrefix + "/wait", waitForCancelHandler);
         return httpServer;
+    }
+
+    private static class WaitForCancelHandler implements HttpHandler {
+        private volatile CountDownLatch requestCameInLatch;
+        private volatile CountDownLatch cancelHandlerLatch;
+
+        void reset() {
+            cancelHandlerLatch = new CountDownLatch(1);
+            requestCameInLatch = new CountDownLatch(1);
+        }
+
+        void cancelDone() {
+            cancelHandlerLatch.countDown();
+        }
+
+        void awaitRequest() throws InterruptedException {
+            requestCameInLatch.await();
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            requestCameInLatch.countDown();
+            try {
+                cancelHandlerLatch.await();
+            } catch (InterruptedException ignore) {
+            } finally {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.close();
+            }
+        }
     }
 
     private static class ResponseHandler implements HttpHandler {
@@ -127,7 +153,7 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
         //verify that shutting down some hosts doesn't matter as long as one working host is left behind
         if (httpServers.length > 1 && randomBoolean()) {
             List<HttpServer> updatedHttpServers = new ArrayList<>(httpServers.length - 1);
-            int nodeIndex = randomInt(httpServers.length - 1);
+            int nodeIndex = randomIntBetween(0, httpServers.length - 1);
             if (0 == nodeIndex) {
                 stoppedFirstHost = true;
             }
@@ -139,7 +165,7 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
                     updatedHttpServers.add(httpServer);
                 }
             }
-            httpServers = updatedHttpServers.toArray(new HttpServer[updatedHttpServers.size()]);
+            httpServers = updatedHttpServers.toArray(new HttpServer[0]);
         }
     }
 
@@ -192,6 +218,43 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
             assertEquals(testResponse.statusCode, response.getStatusLine().getStatusCode());
             assertEquals((pathPrefix.length() > 0 ? pathPrefix : "") + "/" + testResponse.statusCode,
                     response.getRequestLine().getUri());
+        }
+    }
+
+    @Ignore("https://github.com/elastic/elasticsearch/issues/45577")
+    public void testCancelAsyncRequests() throws Exception {
+        int numRequests = randomIntBetween(5, 20);
+        final List<Response> responses = new CopyOnWriteArrayList<>();
+        final List<Exception> exceptions = new CopyOnWriteArrayList<>();
+        for (int i = 0; i < numRequests; i++) {
+            CountDownLatch latch = new CountDownLatch(1);
+            waitForCancelHandler.reset();
+            Cancellable cancellable = restClient.performRequestAsync(new Request("GET", "/wait"), new ResponseListener() {
+                @Override
+                public void onSuccess(Response response) {
+                    responses.add(response);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onFailure(Exception exception) {
+                    exceptions.add(exception);
+                    latch.countDown();
+                }
+            });
+            if (randomBoolean()) {
+                //we wait for the request to get to the server-side otherwise we almost always cancel
+                // the request artificially on the client-side before even sending it
+                waitForCancelHandler.awaitRequest();
+            }
+            cancellable.cancel();
+            waitForCancelHandler.cancelDone();
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
+        }
+        assertEquals(0, responses.size());
+        assertEquals(numRequests, exceptions.size());
+        for (Exception exception : exceptions) {
+            assertThat(exception, instanceOf(CancellationException.class));
         }
     }
 
@@ -249,13 +312,10 @@ public class RestClientMultipleHostsIntegTests extends RestClientTestCase {
     }
 
     private NodeSelector firstPositionNodeSelector() {
-        return new NodeSelector() {
-            @Override
-            public void select(Iterable<Node> nodes) {
-                for (Iterator<Node> itr = nodes.iterator(); itr.hasNext();) {
-                    if (httpHosts[0] != itr.next().getHost()) {
-                        itr.remove();
-                    }
+        return nodes -> {
+            for (Iterator<Node> itr = nodes.iterator(); itr.hasNext();) {
+                if (httpHosts[0] != itr.next().getHost()) {
+                    itr.remove();
                 }
             }
         };

@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client.documentation;
@@ -169,7 +158,7 @@ public class SearchDocumentationIT extends ESRestHighLevelClientTestCase {
 
             // tag::search-source-sorting
             sourceBuilder.sort(new ScoreSortBuilder().order(SortOrder.DESC)); // <1>
-            sourceBuilder.sort(new FieldSortBuilder("_id").order(SortOrder.ASC));  // <2>
+            sourceBuilder.sort(new FieldSortBuilder("id").order(SortOrder.ASC));  // <2>
             // end::search-source-sorting
 
             // tag::search-source-filtering-off
@@ -773,11 +762,10 @@ public class SearchDocumentationIT extends ESRestHighLevelClientTestCase {
         // end::render-search-template-response
 
         assertNotNull(source);
-        assertEquals((
-            "{" +
-            "  \"size\" : \"5\"," +
-            "  \"query\": { \"match\" : { \"title\" : \"elasticsearch\" } }" +
-            "}").replaceAll("\\s+", ""), source.utf8ToString());
+        assertEquals(
+            ("{  \"size\" : \"5\",  \"query\": { \"match\" : { \"title\" : \"elasticsearch\" } }}").replaceAll("\\s+", ""),
+            source.utf8ToString()
+        );
     }
 
     public void testSearchTemplateWithStoredScript() throws Exception {
@@ -1252,6 +1240,9 @@ public class SearchDocumentationIT extends ESRestHighLevelClientTestCase {
         CreateIndexRequest authorsRequest = new CreateIndexRequest("authors")
             .mapping(XContentFactory.jsonBuilder().startObject()
                 .startObject("properties")
+                    .startObject("id")
+                        .field("type", "keyword")
+                    .endObject()
                     .startObject("user")
                         .field("type", "keyword")
                         .field("doc_values", "false")
@@ -1264,6 +1255,9 @@ public class SearchDocumentationIT extends ESRestHighLevelClientTestCase {
         CreateIndexRequest reviewersRequest = new CreateIndexRequest("contributors")
             .mapping(XContentFactory.jsonBuilder().startObject()
                 .startObject("properties")
+                    .startObject("id")
+                        .field("type", "keyword")
+                    .endObject()
                     .startObject("user")
                         .field("type", "keyword")
                         .field("store", "true")
@@ -1275,19 +1269,19 @@ public class SearchDocumentationIT extends ESRestHighLevelClientTestCase {
 
         BulkRequest bulkRequest = new BulkRequest();
         bulkRequest.add(new IndexRequest("posts").id("1")
-                .source(XContentType.JSON, "title", "In which order are my Elasticsearch queries executed?", "user",
+                .source(XContentType.JSON, "id", 1, "title", "In which order are my Elasticsearch queries executed?", "user",
                         Arrays.asList("kimchy", "luca"), "innerObject", Collections.singletonMap("key", "value")));
         bulkRequest.add(new IndexRequest("posts").id("2")
-                .source(XContentType.JSON, "title", "Current status and upcoming changes in Elasticsearch", "user",
+                .source(XContentType.JSON, "id", 2, "title", "Current status and upcoming changes in Elasticsearch", "user",
                         Arrays.asList("kimchy", "christoph"), "innerObject", Collections.singletonMap("key", "value")));
         bulkRequest.add(new IndexRequest("posts").id("3")
-                .source(XContentType.JSON, "title", "The Future of Federated Search in Elasticsearch", "user",
+                .source(XContentType.JSON, "id", 3, "title", "The Future of Federated Search in Elasticsearch", "user",
                         Arrays.asList("kimchy", "tanguy"), "innerObject", Collections.singletonMap("key", "value")));
 
         bulkRequest.add(new IndexRequest("authors").id("1")
-            .source(XContentType.JSON, "user", "kimchy"));
+            .source(XContentType.JSON, "id", 1, "user", "kimchy"));
         bulkRequest.add(new IndexRequest("contributors").id("1")
-            .source(XContentType.JSON, "user", "tanguy"));
+            .source(XContentType.JSON, "id", 1, "user", "tanguy"));
 
 
         bulkRequest.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);

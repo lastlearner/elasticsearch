@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.plugins;
@@ -73,9 +62,7 @@ public class RemovePluginCommandTests extends ESTestCase {
         Files.createDirectories(home.resolve("bin"));
         Files.createFile(home.resolve("bin").resolve("elasticsearch"));
         Files.createDirectories(home.resolve("plugins"));
-        Settings settings = Settings.builder()
-                .put("path.home", home)
-                .build();
+        Settings settings = Settings.builder().put("path.home", home).build();
         env = TestEnvironment.newEnvironment(settings);
     }
 
@@ -93,13 +80,20 @@ public class RemovePluginCommandTests extends ESTestCase {
 
     void createPlugin(Path path, String name, Version version) throws IOException {
         PluginTestUtil.writePluginProperties(
-                path.resolve(name),
-                "description", "dummy",
-                "name", name,
-                "version", "1.0",
-                "elasticsearch.version", version.toString(),
-                "java.version", System.getProperty("java.specification.version"),
-                "classname", "SomeClass");
+            path.resolve(name),
+            "description",
+            "dummy",
+            "name",
+            name,
+            "version",
+            "1.0",
+            "elasticsearch.version",
+            version.toString(),
+            "java.version",
+            System.getProperty("java.specification.version"),
+            "classname",
+            "SomeClass"
+        );
     }
 
     static MockTerminal removePlugin(String name, Path home, boolean purge) throws Exception {
@@ -138,20 +132,12 @@ public class RemovePluginCommandTests extends ESTestCase {
 
     public void testRemoveOldVersion() throws Exception {
         Version previous = VersionUtils.getPreviousVersion();
-        if (previous.before(Version.CURRENT.minimumIndexCompatibilityVersion()) ) {
+        if (previous.before(Version.CURRENT.minimumIndexCompatibilityVersion())) {
             // Can happen when bumping majors: 8.0 is only compat back to 7.0, but that's not released yet
             // In this case, ignore what's released and just find that latest version before current
-            previous = VersionUtils.allVersions().stream()
-                .filter(v -> v.before(Version.CURRENT))
-                .max(Version::compareTo)
-                .get();
+            previous = VersionUtils.allVersions().stream().filter(v -> v.before(Version.CURRENT)).max(Version::compareTo).get();
         }
-        createPlugin(
-                "fake",
-                VersionUtils.randomVersionBetween(
-                        random(),
-                        Version.CURRENT.minimumIndexCompatibilityVersion(),
-                        previous));
+        createPlugin("fake", VersionUtils.randomVersionBetween(random(), Version.CURRENT.minimumIndexCompatibilityVersion(), previous));
         removePlugin("fake", home, randomBoolean());
         assertThat(Files.exists(env.pluginsFile().resolve("fake")), equalTo(false));
         assertRemoveCleaned(env);
@@ -246,11 +232,17 @@ public class RemovePluginCommandTests extends ESTestCase {
                 return false;
             }
         }.main(new String[] { "-Epath.home=" + home, "fake" }, terminal);
-        try (BufferedReader reader = new BufferedReader(new StringReader(terminal.getOutput()))) {
+        try (
+            BufferedReader reader = new BufferedReader(new StringReader(terminal.getOutput()));
+            BufferedReader errorReader = new BufferedReader(new StringReader(terminal.getErrorOutput()))
+        ) {
             assertEquals("-> removing [fake]...", reader.readLine());
-            assertEquals("ERROR: plugin [fake] not found; run 'elasticsearch-plugin list' to get list of installed plugins",
-                    reader.readLine());
+            assertEquals(
+                "ERROR: plugin [fake] not found; run 'elasticsearch-plugin list' to get list of installed plugins",
+                errorReader.readLine()
+            );
             assertNull(reader.readLine());
+            assertNull(errorReader.readLine());
         }
     }
 
@@ -272,4 +264,3 @@ public class RemovePluginCommandTests extends ESTestCase {
     }
 
 }
-

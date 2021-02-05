@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.discovery.ec2;
@@ -53,7 +42,7 @@ import static org.elasticsearch.discovery.ec2.AwsEc2Service.HostType.PUBLIC_IP;
 import static org.elasticsearch.discovery.ec2.AwsEc2Service.HostType.TAG_PREFIX;
 
 class AwsEc2SeedHostsProvider implements SeedHostsProvider {
-    
+
     private static final Logger logger = LogManager.getLogger(AwsEc2SeedHostsProvider.class);
 
     private final TransportService transportService;
@@ -121,7 +110,7 @@ class AwsEc2SeedHostsProvider implements SeedHostsProvider {
         for (final Reservation reservation : descInstances.getReservations()) {
             for (final Instance instance : reservation.getInstances()) {
                 // lets see if we can filter based on groups
-                if (!groups.isEmpty()) {
+                if (groups.isEmpty() == false) {
                     final List<GroupIdentifier> instanceSecurityGroups = instance.getSecurityGroups();
                     final List<String> securityGroupNames = new ArrayList<>(instanceSecurityGroups.size());
                     final List<String> securityGroupIds = new ArrayList<>(instanceSecurityGroups.size());
@@ -140,7 +129,7 @@ class AwsEc2SeedHostsProvider implements SeedHostsProvider {
                         }
                     } else {
                         // We need tp match all group names or group ids, otherwise we ignore this instance
-                        if (!(securityGroupNames.containsAll(groups) || securityGroupIds.containsAll(groups))) {
+                        if ((securityGroupNames.containsAll(groups) || securityGroupIds.containsAll(groups)) == false) {
                             logger.trace("filtering out instance {} based on groups {}, does not include all of {}",
                                     instance.getInstanceId(), instanceSecurityGroups, groups);
                             // continue to the next instance
@@ -174,8 +163,7 @@ class AwsEc2SeedHostsProvider implements SeedHostsProvider {
                 }
                 if (address != null) {
                     try {
-                        // we only limit to 1 port per address, makes no sense to ping 100 ports
-                        final TransportAddress[] addresses = transportService.addressesFromString(address, 1);
+                        final TransportAddress[] addresses = transportService.addressesFromString(address);
                         for (int i = 0; i < addresses.length; i++) {
                             logger.trace("adding {}, address {}, transport_address {}", instance.getInstanceId(), address, addresses[i]);
                             dynamicHosts.add(addresses[i]);
@@ -210,7 +198,7 @@ class AwsEc2SeedHostsProvider implements SeedHostsProvider {
             );
         }
 
-        if (!availabilityZones.isEmpty()) {
+        if (availabilityZones.isEmpty() == false) {
             // OR relationship amongst multiple values of the availability-zone filter
             describeInstancesRequest.withFilters(
                 new Filter("availability-zone").withValues(availabilityZones)
@@ -222,22 +210,13 @@ class AwsEc2SeedHostsProvider implements SeedHostsProvider {
 
     private final class TransportAddressesCache extends SingleObjectCache<List<TransportAddress>> {
 
-        private boolean empty = true;
-
         protected TransportAddressesCache(TimeValue refreshInterval) {
             super(refreshInterval,  new ArrayList<>());
         }
 
         @Override
-        protected boolean needsRefresh() {
-            return (empty || super.needsRefresh());
-        }
-
-        @Override
         protected List<TransportAddress> refresh() {
-            final List<TransportAddress> nodes = fetchDynamicNodes();
-            empty = nodes.isEmpty();
-            return nodes;
+            return fetchDynamicNodes();
         }
     }
 }

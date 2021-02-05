@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.index.shard;
@@ -23,6 +12,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.ReferenceManager;
 import org.elasticsearch.common.collect.Tuple;
 import org.elasticsearch.common.lease.Releasable;
+import org.elasticsearch.common.metrics.MeanMetric;
 import org.elasticsearch.common.util.concurrent.RunOnce;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.index.translog.Translog;
@@ -31,7 +21,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -47,9 +36,14 @@ import static java.util.Objects.requireNonNull;
 public final class RefreshListeners implements ReferenceManager.RefreshListener, Closeable {
     private final IntSupplier getMaxRefreshListeners;
     private final Runnable forceRefresh;
-    private final Executor listenerExecutor;
     private final Logger logger;
     private final ThreadContext threadContext;
+    private final MeanMetric refreshMetric;
+
+    /**
+     * Time in nanosecond when beforeRefresh() is called. Used for calculating refresh metrics.
+     */
+    private long currentRefreshStartTime;
 
     /**
      * Is this closed? If true then we won't add more listeners and have flushed all pending listeners.
@@ -75,13 +69,18 @@ public final class RefreshListeners implements ReferenceManager.RefreshListener,
      */
     private volatile Translog.Location lastRefreshedLocation;
 
-    public RefreshListeners(IntSupplier getMaxRefreshListeners, Runnable forceRefresh, Executor listenerExecutor, Logger logger,
-                            ThreadContext threadContext) {
+    public RefreshListeners(
+        final IntSupplier getMaxRefreshListeners,
+        final Runnable forceRefresh,
+        final Logger logger,
+        final ThreadContext threadContext,
+        final MeanMetric refreshMetric
+    ) {
         this.getMaxRefreshListeners = getMaxRefreshListeners;
         this.forceRefresh = forceRefresh;
-        this.listenerExecutor = listenerExecutor;
         this.logger = logger;
         this.threadContext = threadContext;
+        this.refreshMetric = refreshMetric;
     }
 
     /**
@@ -204,10 +203,14 @@ public final class RefreshListeners implements ReferenceManager.RefreshListener,
     @Override
     public void beforeRefresh() throws IOException {
         currentRefreshLocation = currentRefreshLocationSupplier.get();
+        currentRefreshStartTime = System.nanoTime();
     }
 
     @Override
     public void afterRefresh(boolean didRefresh) throws IOException {
+        // Increment refresh metric before communicating to listeners.
+        refreshMetric.inc(System.nanoTime() - currentRefreshStartTime);
+
         /* We intentionally ignore didRefresh here because our timing is a little off. It'd be a useful flag if we knew everything that made
          * it into the refresh, but the way we snapshot the translog position before the refresh, things can sneak into the refresh that we
          * don't know about. */
@@ -270,24 +273,22 @@ public final class RefreshListeners implements ReferenceManager.RefreshListener,
                 }
             }
         }
-        // Lastly, fire the listeners that are ready on the listener thread pool
+        // Lastly, fire the listeners that are ready
         fireListeners(listenersToFire);
     }
 
     /**
      * Fire some listeners. Does nothing if the list of listeners is null.
      */
-    private void fireListeners(List<Tuple<Translog.Location, Consumer<Boolean>>> listenersToFire) {
+    private void fireListeners(final List<Tuple<Translog.Location, Consumer<Boolean>>> listenersToFire) {
         if (listenersToFire != null) {
-            listenerExecutor.execute(() -> {
-                for (Tuple<Translog.Location, Consumer<Boolean>> listener : listenersToFire) {
-                    try {
-                        listener.v2().accept(false);
-                    } catch (Exception e) {
-                        logger.warn("Error firing refresh listener", e);
-                    }
+            for (final Tuple<Translog.Location, Consumer<Boolean>> listener : listenersToFire) {
+                try {
+                    listener.v2().accept(false);
+                } catch (final Exception e) {
+                    logger.warn("error firing refresh listener", e);
                 }
-            });
+            }
         }
     }
 }

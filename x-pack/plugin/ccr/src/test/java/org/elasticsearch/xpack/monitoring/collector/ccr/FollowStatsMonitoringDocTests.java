@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.monitoring.collector.ccr;
@@ -95,6 +96,7 @@ public class FollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase<Fol
         final long writeBufferSizeInBytes = randomNonNegativeLong();
         final long followerMappingVersion = randomNonNegativeLong();
         final long followerSettingsVersion = randomNonNegativeLong();
+        final long followerAliasesVersion = randomNonNegativeLong();
         final long totalReadTimeMillis = randomLongBetween(0, 4096);
         final long totalReadRemoteExecTimeMillis = randomLongBetween(0, 4096);
         final long successfulReadRequests = randomNonNegativeLong();
@@ -126,6 +128,7 @@ public class FollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase<Fol
                 writeBufferSizeInBytes,
                 followerMappingVersion,
                 followerSettingsVersion,
+                followerAliasesVersion,
                 totalReadTimeMillis,
                 totalReadRemoteExecTimeMillis,
                 successfulReadRequests,
@@ -173,6 +176,7 @@ public class FollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase<Fol
                                         + "\"write_buffer_size_in_bytes\":" + writeBufferSizeInBytes + ","
                                         + "\"follower_mapping_version\":" + followerMappingVersion + ","
                                         + "\"follower_settings_version\":" + followerSettingsVersion + ","
+                                        + "\"follower_aliases_version\":" + followerAliasesVersion + ","
                                         + "\"total_read_time_millis\":" + totalReadTimeMillis + ","
                                         + "\"total_read_remote_exec_time_millis\":" + totalReadRemoteExecTimeMillis + ","
                                         + "\"successful_read_requests\":" + successfulReadRequests + ","
@@ -218,6 +222,7 @@ public class FollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase<Fol
             1,
             1,
             1,
+            1,
             100,
             50,
             10,
@@ -237,7 +242,8 @@ public class FollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase<Fol
 
         Map<String, Object> template =
             XContentHelper.convertToMap(XContentType.JSON.xContent(), MonitoringTemplateUtils.loadTemplate("es"), false);
-        Map<?, ?> followStatsMapping = (Map<?, ?>) XContentMapValues.extractValue("mappings.doc.properties.ccr_stats.properties", template);
+        Map<?, ?> followStatsMapping = (Map<?, ?>) XContentMapValues
+            .extractValue("mappings._doc.properties.ccr_stats.properties", template);
         assertThat(serializedStatus.size(), equalTo(followStatsMapping.size()));
         for (Map.Entry<String, Object> entry : serializedStatus.entrySet()) {
             String fieldName = entry.getKey();

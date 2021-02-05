@@ -1,25 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.apache.lucene.search.uhighlight;
 
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.custom.CustomAnalyzer;
+import org.apache.lucene.analysis.ngram.EdgeNGramTokenizerFactory;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -30,9 +21,9 @@ import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.queries.CommonTermsQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.PhraseQuery;
@@ -76,12 +67,22 @@ public class CustomUnifiedHighlighterTests extends ESTestCase {
         TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), 1, Sort.INDEXORDER);
         assertThat(topDocs.totalHits.value, equalTo(1L));
         String rawValue = Strings.arrayToDelimitedString(inputs, String.valueOf(MULTIVAL_SEP_CHAR));
-        CustomUnifiedHighlighter highlighter = new CustomUnifiedHighlighter(searcher, analyzer, null,
-                new CustomPassageFormatter("<b>", "</b>", new DefaultEncoder()), locale,
-                breakIterator, rawValue, noMatchSize);
-        highlighter.setFieldMatcher((name) -> "text".equals(name));
-        final Snippet[] snippets =
-            highlighter.highlightField("text", query, topDocs.scoreDocs[0].doc, expectedPassages.length);
+        CustomUnifiedHighlighter highlighter = new CustomUnifiedHighlighter(
+            searcher,
+            analyzer,
+            null,
+            new CustomPassageFormatter("<b>", "</b>", new DefaultEncoder()),
+            locale,
+            breakIterator,
+            "index",
+            "text",
+            query,
+            noMatchSize,
+            expectedPassages.length,
+            name -> "text".equals(name),
+            Integer.MAX_VALUE
+        );
+        final Snippet[] snippets = highlighter.highlightField(getOnlyLeafReader(reader), topDocs.scoreDocs[0].doc, () -> rawValue);
         assertEquals(snippets.length, expectedPassages.length);
         for (int i = 0; i < snippets.length; i++) {
             assertEquals(snippets[i].getText(), expectedPassages[i]);
@@ -143,21 +144,6 @@ public class CustomUnifiedHighlighterTests extends ESTestCase {
         query.add(new Term("text", "quick"));
         query.add(new Term("text", "brown"));
         query.add(new Term("text", "fo"));
-        assertHighlightOneDoc("text", inputs, new StandardAnalyzer(), query, Locale.ROOT,
-            BreakIterator.getSentenceInstance(Locale.ROOT), 0, outputs);
-    }
-
-    public void testCommonTermsQuery() throws Exception {
-        final String[] inputs = {
-            "The quick brown fox."
-        };
-        final String[] outputs = {
-            "The <b>quick</b> <b>brown</b> <b>fox</b>."
-        };
-        CommonTermsQuery query = new CommonTermsQuery(BooleanClause.Occur.SHOULD, BooleanClause.Occur.SHOULD, 128);
-        query.add(new Term("text", "quick"));
-        query.add(new Term("text", "brown"));
-        query.add(new Term("text", "fox"));
         assertHighlightOneDoc("text", inputs, new StandardAnalyzer(), query, Locale.ROOT,
             BreakIterator.getSentenceInstance(Locale.ROOT), 0, outputs);
     }
@@ -238,6 +224,35 @@ public class CustomUnifiedHighlighterTests extends ESTestCase {
             .build();
         assertHighlightOneDoc("text", inputs, new StandardAnalyzer(), query, Locale.ROOT,
             BoundedBreakIteratorScanner.getSentence(Locale.ROOT, 20), 0, outputs);
+    }
+
+    public void testOverlappingTerms() throws Exception {
+        final String[] inputs = {
+            "bro",
+            "brown",
+            "brownie",
+            "browser"
+        };
+        final String[] outputs = {
+            "<b>bro</b>",
+            "<b>brown</b>",
+            "<b>browni</b>e",
+            "<b>browser</b>"
+        };
+        BooleanQuery query = new BooleanQuery.Builder()
+            .add(new FuzzyQuery(new Term("text", "brow")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "b")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "br")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "bro")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "brown")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "browni")), BooleanClause.Occur.SHOULD)
+            .add(new TermQuery(new Term("text", "browser")), BooleanClause.Occur.SHOULD)
+            .build();
+        Analyzer analyzer = CustomAnalyzer.builder()
+            .withTokenizer(EdgeNGramTokenizerFactory.class, "minGramSize", "1", "maxGramSize", "7")
+            .build();
+        assertHighlightOneDoc("text", inputs,
+            analyzer, query, Locale.ROOT, BreakIterator.getSentenceInstance(Locale.ROOT), 0, outputs);
     }
 
 }

@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.trigger;
 
@@ -177,11 +178,5 @@ public class TriggerServiceTests extends ESTestCase {
         when(actionWrapper.action()).thenReturn(executableAction);
         newActions.add(actionWrapper);
         when(watch.actions()).thenReturn(newActions);
-    }
-
-    private void setTransform(Watch watch, String type) {
-        ExecutableTransform transform = mock(ExecutableTransform.class);
-        when(transform.type()).thenReturn(type);
-        when(watch.transform()).thenReturn(transform);
     }
 }

@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client.security.user.privileges;
@@ -29,7 +18,7 @@ import org.elasticsearch.common.xcontent.XContentType;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 
 import static org.elasticsearch.common.xcontent.ConstructingObjectParser.constructorArg;
@@ -48,8 +37,8 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
     static final ConstructingObjectParser<IndicesPrivileges, Void> PARSER =
         new ConstructingObjectParser<>("indices_privileges", false, constructorObjects -> {
             int i = 0;
-            final Collection<String> indices = (Collection<String>) constructorObjects[i++];
-            final Collection<String> privileges = (Collection<String>) constructorObjects[i++];
+            final List<String> indices = (List<String>) constructorObjects[i++];
+            final List<String> privileges = (List<String>) constructorObjects[i++];
             final boolean allowRestrictedIndices = (Boolean) constructorObjects[i++];
             final FieldSecurity fields = (FieldSecurity) constructorObjects[i++];
             final String query = (String) constructorObjects[i];
@@ -68,7 +57,7 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
     // missing query means all documents, i.e. no restrictions
     private final @Nullable String query;
 
-    private IndicesPrivileges(Collection<String> indices, Collection<String> privileges, boolean allowRestrictedIndices,
+    private IndicesPrivileges(List<String> indices, List<String> privileges, boolean allowRestrictedIndices,
                               @Nullable FieldSecurity fieldSecurity, @Nullable String query) {
         super(indices, privileges, allowRestrictedIndices);
         this.fieldSecurity = fieldSecurity;
@@ -165,13 +154,13 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
     public static final class Builder {
 
         private @Nullable
-        Collection<String> indices = null;
+        List<String> indices = null;
         private @Nullable
-        Collection<String> privileges = null;
+        List<String> privileges = null;
         private @Nullable
-        Collection<String> grantedFields = null;
+        List<String> grantedFields = null;
         private @Nullable
-        Collection<String> deniedFields = null;
+        List<String> deniedFields = null;
         private @Nullable
         String query = null;
         boolean allowRestrictedIndices = false;
@@ -183,7 +172,7 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
             return indices(Arrays.asList(Objects.requireNonNull(indices, "indices required")));
         }
 
-        public Builder indices(Collection<String> indices) {
+        public Builder indices(List<String> indices) {
             this.indices = Objects.requireNonNull(indices, "indices required");
             return this;
         }
@@ -192,7 +181,7 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
             return privileges(Arrays.asList(Objects.requireNonNull(privileges, "privileges required")));
         }
 
-        public Builder privileges(Collection<String> privileges) {
+        public Builder privileges(List<String> privileges) {
             this.privileges = Objects.requireNonNull(privileges, "privileges required");
             return this;
         }
@@ -205,7 +194,7 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
             return grantedFields(Arrays.asList(grantedFields));
         }
 
-        public Builder grantedFields(@Nullable Collection<String> grantedFields) {
+        public Builder grantedFields(@Nullable List<String> grantedFields) {
             this.grantedFields = grantedFields;
             return this;
         }
@@ -218,7 +207,7 @@ public final class IndicesPrivileges extends AbstractIndicesPrivileges implement
             return deniedFields(Arrays.asList(deniedFields));
         }
 
-        public Builder deniedFields(@Nullable Collection<String> deniedFields) {
+        public Builder deniedFields(@Nullable List<String> deniedFields) {
             this.deniedFields = deniedFields;
             return this;
         }

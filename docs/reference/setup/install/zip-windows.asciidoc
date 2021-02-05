@@ -1,7 +1,7 @@
 [[zip-windows]]
 === Install Elasticsearch with `.zip` on Windows
 
-Elasticsearch can be installed on Windows using the `.zip` package.  This
+Elasticsearch can be installed on Windows using the Windows `.zip` archive.  This
 comes with a `elasticsearch-service.bat` command which will setup Elasticsearch to run as a
 service.
 
@@ -11,14 +11,22 @@ experience for Windows. You can continue using the `.zip` approach if you prefer
 
 include::license.asciidoc[]
 
+NOTE: On Windows the Elasticsearch {ml} feature requires the Microsoft Universal
+C Runtime library. This is built into Windows 10, Windows Server 2016 and more
+recent versions of Windows. For older versions of Windows it can be installed
+via Windows Update, or from a
+https://support.microsoft.com/en-us/help/2999226/update-for-universal-c-runtime-in-windows[separate download].
+If you cannot install the Microsoft Universal C Runtime library you can still
+use the rest of Elasticsearch if you disable the {ml} feature.
+
 The latest stable version of Elasticsearch can be found on the
 link:/downloads/elasticsearch[Download Elasticsearch] page.
 Other versions can be found on the
 link:/downloads/past-releases[Past Releases page].
 
-NOTE: Elasticsearch requires Java 8 or later. Use the
-http://www.oracle.com/technetwork/java/javase/downloads/index.html[official Oracle distribution]
-or an open-source distribution such as http://openjdk.java.net[OpenJDK].
+NOTE: Elasticsearch includes a bundled version of https://openjdk.java.net[OpenJDK]
+from the JDK maintainers (GPLv2+CE). To use your own version of Java,
+see the <<jvm-version, JVM version requirements>>
 
 [[install-windows]]
 ==== Download and install the `.zip` package
@@ -33,10 +41,6 @@ ifeval::["{release-state}"!="unreleased"]
 
 Download the `.zip` archive for Elasticsearch v{version} from: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-{version}-windows-x86_64.zip
 
-Alternatively, you can download the following package, which contains only 
-features that are available under the Apache 2.0 license: 
-https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-{version}-windows-x86_64.zip
-
 Unzip it with your favourite unzip tool.  This will create a folder called
 +elasticsearch-{version}+, which we will refer to as `%ES_HOME%`. In a terminal
 window, `cd` to the `%ES_HOME%` directory, for instance:
@@ -49,10 +53,10 @@ cd c:\elasticsearch-{version}
 endif::[]
 
 ifdef::include-xpack[]
+[role="xpack"]
 [[windows-enable-indices]]
-==== Enable automatic creation of {xpack} indices
+==== Enable automatic creation of system indices
 
-{xpack} will try to automatically create a number of indices within {es}.
 include::xpack-indices.asciidoc[]
 
 endif::include-xpack[]
@@ -136,7 +140,7 @@ installation. However, upgrading across JVM types (e.g. JRE versus SE) is not
 supported, and does require the service to be reinstalled.
 
 [[windows-service-settings]]
-[float]
+[discrete]
 === Customizing service settings
 
 The Elasticsearch service can be configured prior to installation by setting the following environment variables (either using the https://technet.microsoft.com/en-us/library/cc754250(v=ws.10).aspx[set command] from the command line, or through the `System Properties->Environment Variables` GUI).
@@ -192,14 +196,21 @@ The Elasticsearch service can be configured prior to installation by setting the
 
   The timeout in seconds that procrun waits for service to exit gracefully.  Defaults to `0`.
 
-NOTE: At its core, `elasticsearch-service.bat` relies on http://commons.apache.org/proper/commons-daemon/[Apache Commons Daemon] project
+NOTE: At its core, `elasticsearch-service.bat` relies on https://commons.apache.org/proper/commons-daemon/[Apache Commons Daemon] project
 to install the service. Environment variables set prior to the service installation are copied and will be used during the service lifecycle. This means any changes made to them after the installation will not be picked up unless the service is reinstalled.
 
-NOTE: On Windows, the <<heap-size,heap size>> can be configured as for
-any other Elasticsearch installation when running Elasticsearch from the
-command line, or when installing Elasticsearch as a service for the
-first time. To adjust the heap size for an already installed service,
+[NOTE]
+====
+By default, {es} automatically sizes JVM heap based on a node's
+<<node-roles,roles>> and total memory. We recommend this default sizing for most
+production environments. If needed, you can override default sizing by manually
+setting the heap size.
+
+When installing {es} on Windows as a service for the first time or running {es}
+from the command line, you can manually set the heap size as described in
+<<setting-jvm-heap-size>>. To resize the heap for an already installed service,
 use the service manager: `bin\elasticsearch-service.bat manager`.
+====
 
 NOTE: The service automatically configures a private temporary directory for use
 by Elasticsearch when it is running. This private temporary directory is

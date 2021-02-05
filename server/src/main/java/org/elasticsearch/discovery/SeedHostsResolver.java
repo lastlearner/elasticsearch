@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.discovery;
@@ -27,6 +16,7 @@ import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.common.util.CancellableThreads;
 import org.elasticsearch.common.util.concurrent.AbstractRunnable;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.discovery.PeerFinder.ConfiguredHostsResolver;
@@ -67,6 +57,7 @@ public class SeedHostsResolver extends AbstractLifecycleComponent implements Con
     private final TimeValue resolveTimeout;
     private final String nodeName;
     private final int concurrentConnects;
+    private final CancellableThreads cancellableThreads = new CancellableThreads();
 
     public SeedHostsResolver(String nodeName, Settings settings, TransportService transportService,
                              SeedHostsProvider seedProvider) {
@@ -87,9 +78,7 @@ public class SeedHostsResolver extends AbstractLifecycleComponent implements Con
     }
 
     @Override
-    public List<TransportAddress> resolveHosts(
-        final List<String> hosts,
-        final int limitPortCounts) {
+    public List<TransportAddress> resolveHosts(final List<String> hosts) {
         Objects.requireNonNull(hosts);
         if (resolveTimeout.nanos() < 0) {
             throw new IllegalArgumentException("resolve timeout must be non-negative but was [" + resolveTimeout + "]");
@@ -98,13 +87,13 @@ public class SeedHostsResolver extends AbstractLifecycleComponent implements Con
         final List<Callable<TransportAddress[]>> callables =
             hosts
                 .stream()
-                .map(hn -> (Callable<TransportAddress[]>) () -> transportService.addressesFromString(hn, limitPortCounts))
+                .map(hn -> (Callable<TransportAddress[]>) () -> transportService.addressesFromString(hn))
                 .collect(Collectors.toList());
-        final List<Future<TransportAddress[]>> futures;
+        final SetOnce<List<Future<TransportAddress[]>>> futures = new SetOnce<>();
         try {
-            futures = executorService.get().invokeAll(callables, resolveTimeout.nanos(), TimeUnit.NANOSECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            cancellableThreads.execute(() ->
+                futures.set(executorService.get().invokeAll(callables, resolveTimeout.nanos(), TimeUnit.NANOSECONDS)));
+        } catch (CancellableThreads.ExecutionCancelledException e) {
             return Collections.emptyList();
         }
         final List<TransportAddress> transportAddresses = new ArrayList<>();
@@ -114,10 +103,10 @@ public class SeedHostsResolver extends AbstractLifecycleComponent implements Con
         // ExecutorService#invokeAll guarantees that the futures are returned in the iteration order of the tasks so we can associate the
         // hostname with the corresponding task by iterating together
         final Iterator<String> it = hosts.iterator();
-        for (final Future<TransportAddress[]> future : futures) {
+        for (final Future<TransportAddress[]> future : futures.get()) {
+            assert future.isDone();
             final String hostname = it.next();
-            if (!future.isCancelled()) {
-                assert future.isDone();
+            if (future.isCancelled() == false) {
                 try {
                     final TransportAddress[] addresses = future.get();
                     logger.trace("resolved host [{}] to {}", hostname, addresses);
@@ -153,6 +142,7 @@ public class SeedHostsResolver extends AbstractLifecycleComponent implements Con
 
     @Override
     protected void doStop() {
+        cancellableThreads.cancel("stopping SeedHostsResolver");
         ThreadPool.terminate(executorService.get(), 10, TimeUnit.SECONDS);
     }
 

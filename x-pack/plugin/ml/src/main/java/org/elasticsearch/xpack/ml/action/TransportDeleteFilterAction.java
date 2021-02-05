@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.action;
 
@@ -31,7 +32,6 @@ import org.elasticsearch.xpack.ml.job.persistence.JobConfigProvider;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 import static org.elasticsearch.xpack.core.ClientHelper.ML_ORIGIN;
 import static org.elasticsearch.xpack.core.ClientHelper.executeAsyncWithOrigin;
@@ -45,8 +45,7 @@ public class TransportDeleteFilterAction extends HandledTransportAction<DeleteFi
     public TransportDeleteFilterAction(TransportService transportService,
                                        ActionFilters actionFilters, Client client,
                                        JobConfigProvider jobConfigProvider) {
-        super(DeleteFilterAction.NAME, transportService, actionFilters,
-            (Supplier<DeleteFilterAction.Request>) DeleteFilterAction.Request::new);
+        super(DeleteFilterAction.NAME, transportService, actionFilters, DeleteFilterAction.Request::new);
         this.client = client;
         this.jobConfigProvider = jobConfigProvider;
     }
@@ -57,7 +56,7 @@ public class TransportDeleteFilterAction extends HandledTransportAction<DeleteFi
         jobConfigProvider.findJobsWithCustomRules(ActionListener.wrap(
                 jobs-> {
                     List<String> currentlyUsedBy = findJobsUsingFilter(jobs, filterId);
-                    if (!currentlyUsedBy.isEmpty()) {
+                    if (currentlyUsedBy.isEmpty() == false) {
                         listener.onFailure(ExceptionsHelper.conflictStatusException(
                                 Messages.getMessage(Messages.FILTER_CANNOT_DELETE, filterId, currentlyUsedBy)));
                     } else {
@@ -84,7 +83,7 @@ public class TransportDeleteFilterAction extends HandledTransportAction<DeleteFi
     }
 
     private void deleteFilter(String filterId, ActionListener<AcknowledgedResponse> listener) {
-        DeleteRequest deleteRequest = new DeleteRequest(MlMetaIndex.INDEX_NAME, MlFilter.documentId(filterId));
+        DeleteRequest deleteRequest = new DeleteRequest(MlMetaIndex.indexName(), MlFilter.documentId(filterId));
         BulkRequestBuilder bulkRequestBuilder = client.prepareBulk();
         bulkRequestBuilder.add(deleteRequest);
         bulkRequestBuilder.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
@@ -96,7 +95,7 @@ public class TransportDeleteFilterAction extends HandledTransportAction<DeleteFi
                         listener.onFailure(new ResourceNotFoundException("Could not delete filter with ID [" + filterId
                             + "] because it does not exist"));
                     } else {
-                        listener.onResponse(new AcknowledgedResponse(true));
+                        listener.onResponse(AcknowledgedResponse.TRUE);
                     }
                 }
 

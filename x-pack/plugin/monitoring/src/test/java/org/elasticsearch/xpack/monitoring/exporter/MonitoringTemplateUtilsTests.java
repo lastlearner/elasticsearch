@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.monitoring.exporter;
 
@@ -58,7 +59,7 @@ public class MonitoringTemplateUtilsTests extends ESTestCase {
         assertTemplate(source, equalTo("{\n" +
                 "  \"index_patterns\": \".monitoring-data-" + TEMPLATE_VERSION + "\",\n" +
                 "  \"mappings\": {\n" +
-                "    \"doc\": {\n" +
+                "    \"_doc\": {\n" +
                 "      \"_meta\": {\n" +
                 "        \"template.version\": \"" + TEMPLATE_VERSION + "\"\n" +
                 "      }\n" +
@@ -115,5 +116,4 @@ public class MonitoringTemplateUtilsTests extends ESTestCase {
         assertThat(indexName(formatter, MonitoredSystem.BEATS, timestamp),
                 equalTo(".monitoring-beats-" + TEMPLATE_VERSION + "-2017-03-08-13.47.58"));
     }
-
 }

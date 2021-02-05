@@ -1,26 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.logging;
 
 import org.elasticsearch.common.xcontent.DeprecationHandler;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
+import org.elasticsearch.common.xcontent.ObjectParser;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 
@@ -30,6 +20,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Stream;
@@ -42,25 +34,41 @@ import java.util.stream.StreamSupport;
 public class JsonLogsStream {
     private final XContentParser parser;
     private final BufferedReader reader;
+    private final ObjectParser<JsonLogLine, Void> logLineParser;
 
-    private JsonLogsStream(BufferedReader reader) throws IOException {
+    private JsonLogsStream(BufferedReader reader, ObjectParser<JsonLogLine, Void> logLineParser) throws IOException {
         this.reader = reader;
         this.parser = JsonXContent.jsonXContent.createParser(NamedXContentRegistry.EMPTY, DeprecationHandler.THROW_UNSUPPORTED_OPERATION,
             reader);
+        this.logLineParser = logLineParser;
+    }
+
+    public static Stream<JsonLogLine> from(BufferedReader reader, ObjectParser<JsonLogLine, Void> logLineParser) throws IOException {
+        return new JsonLogsStream(reader, logLineParser).stream();
     }
 
     public static Stream<JsonLogLine> from(BufferedReader reader) throws IOException {
-        return new JsonLogsStream(reader).stream();
+        return new JsonLogsStream(reader, JsonLogLine.ECS_LOG_LINE).stream();
     }
 
     public static Stream<JsonLogLine> from(Path path) throws IOException {
         return from(Files.newBufferedReader(path));
     }
 
+    public static Stream<Map<String, String>> mapStreamFrom(Path path) throws IOException {
+        return new JsonLogsStream(Files.newBufferedReader(path), JsonLogLine.ECS_LOG_LINE).streamMap();
+    }
+
     private Stream<JsonLogLine> stream() {
         Spliterator<JsonLogLine> spliterator = Spliterators.spliteratorUnknownSize(new JsonIterator(), Spliterator.ORDERED);
         return StreamSupport.stream(spliterator, false)
-                            .onClose(this::close);
+            .onClose(this::close);
+    }
+
+    private Stream<Map<String, String>> streamMap() {
+        Spliterator<Map<String, String>> spliterator = Spliterators.spliteratorUnknownSize(new MapIterator(), Spliterator.ORDERED);
+        return StreamSupport.stream(spliterator, false)
+            .onClose(this::close);
     }
 
     private void close() {
@@ -69,6 +77,26 @@ public class JsonLogsStream {
             reader.close();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    private class MapIterator implements Iterator<Map<String, String>> {
+
+        @Override
+        public boolean hasNext() {
+            return parser.isClosed() == false;
+        }
+
+        @Override
+        public Map<String, String> next() {
+            Map<String, String> map;
+            try {
+                map = parser.map(LinkedHashMap::new, XContentParser::text);
+                parser.nextToken();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return map;
         }
     }
 
@@ -81,7 +109,7 @@ public class JsonLogsStream {
 
         @Override
         public JsonLogLine next() {
-            JsonLogLine apply = JsonLogLine.PARSER.apply(parser, null);
+            JsonLogLine apply = logLineParser.apply(parser, null);
             nextToken();
             return apply;
         }

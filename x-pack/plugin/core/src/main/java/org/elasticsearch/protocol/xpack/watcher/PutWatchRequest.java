@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.protocol.xpack.watcher;
 
@@ -12,6 +13,7 @@ import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.lucene.uid.Versions;
+import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.seqno.SequenceNumbers;
 
@@ -42,7 +44,14 @@ public final class PutWatchRequest extends ActionRequest {
     public PutWatchRequest() {}
 
     public PutWatchRequest(StreamInput in) throws IOException {
-        readFrom(in);
+        super(in);
+        id = in.readString();
+        source = in.readBytesReference();
+        active = in.readBoolean();
+        xContentType = in.readEnum(XContentType.class);;
+        version = in.readZLong();
+        ifSeqNo = in.readZLong();
+        ifPrimaryTerm = in.readVLong();
     }
 
     public PutWatchRequest(String id, BytesReference source, XContentType xContentType) {
@@ -52,24 +61,12 @@ public final class PutWatchRequest extends ActionRequest {
     }
 
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        id = in.readString();
-        source = in.readBytesReference();
-        active = in.readBoolean();
-        xContentType = in.readEnum(XContentType.class);
-        version = in.readZLong();
-        ifSeqNo = in.readZLong();
-        ifPrimaryTerm = in.readVLong();
-    }
-
-    @Override
     public void writeTo(StreamOutput out) throws IOException {
         super.writeTo(out);
         out.writeString(id);
         out.writeBytesReference(source);
         out.writeBoolean(active);
-        out.writeEnum(xContentType);
+        XContentHelper.writeTo(out, xContentType);
         out.writeZLong(version);
         out.writeZLong(ifSeqNo);
         out.writeVLong(ifPrimaryTerm);

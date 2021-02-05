@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.deprecation;
@@ -18,7 +19,9 @@ import java.util.Objects;
 
 public class NodesDeprecationCheckResponse extends BaseNodesResponse<NodesDeprecationCheckAction.NodeResponse> {
 
-    public NodesDeprecationCheckResponse() {}
+    public NodesDeprecationCheckResponse(StreamInput in) throws IOException {
+        super(in);
+    }
 
     public NodesDeprecationCheckResponse(ClusterName clusterName,
                                          List<NodesDeprecationCheckAction.NodeResponse> nodes,
@@ -28,12 +31,12 @@ public class NodesDeprecationCheckResponse extends BaseNodesResponse<NodesDeprec
 
     @Override
     protected List<NodesDeprecationCheckAction.NodeResponse> readNodesFrom(StreamInput in) throws IOException {
-        return in.readList(NodesDeprecationCheckAction.NodeResponse::readNodeResponse);
+        return in.readList(NodesDeprecationCheckAction.NodeResponse::new);
     }
 
     @Override
     protected void writeNodesTo(StreamOutput out, List<NodesDeprecationCheckAction.NodeResponse> nodes) throws IOException {
-        out.writeStreamableList(nodes);
+        out.writeList(nodes);
     }
 
     @Override

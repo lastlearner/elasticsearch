@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.action.bulk;
 
@@ -26,6 +15,7 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.threadpool.Scheduler;
 import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.transport.RemoteTransportException;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -101,7 +91,7 @@ public class Retry {
 
         @Override
         public void onResponse(BulkResponse bulkItemResponses) {
-            if (!bulkItemResponses.hasFailures()) {
+            if (bulkItemResponses.hasFailures() == false) {
                 // we're done here, include all responses
                 addResponses(bulkItemResponses, (r -> true));
                 finishHim();
@@ -118,11 +108,15 @@ public class Retry {
 
         @Override
         public void onFailure(Exception e) {
-            try {
-                listener.onFailure(e);
-            } finally {
-                if (retryCancellable != null) {
-                    retryCancellable.cancel();
+            if (e instanceof RemoteTransportException && ((RemoteTransportException) e).status() == RETRY_STATUS && backoff.hasNext()) {
+                retry(currentBulkRequest);
+            } else {
+                try {
+                    listener.onFailure(e);
+                } finally {
+                    if (retryCancellable != null) {
+                        retryCancellable.cancel();
+                    }
                 }
             }
         }
@@ -131,8 +125,7 @@ public class Retry {
             assert backoff.hasNext();
             TimeValue next = backoff.next();
             logger.trace("Retry of bulk request scheduled in {} ms.", next.millis());
-            Runnable command = scheduler.preserveContext(() -> this.execute(bulkRequestForRetry));
-            retryCancellable = scheduler.schedule(command, next, ThreadPool.Names.SAME);
+            retryCancellable = scheduler.schedule(() -> this.execute(bulkRequestForRetry), next, ThreadPool.Names.SAME);
         }
 
         private BulkRequest createBulkRequestForRetry(BulkResponse bulkItemResponses) {
@@ -148,7 +141,7 @@ public class Retry {
         }
 
         private boolean canRetry(BulkResponse bulkItemResponses) {
-            if (!backoff.hasNext()) {
+            if (backoff.hasNext() == false) {
                 return false;
             }
             for (BulkItemResponse bulkItemResponse : bulkItemResponses) {

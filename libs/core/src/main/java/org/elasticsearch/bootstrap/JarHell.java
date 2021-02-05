@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.bootstrap;
@@ -134,8 +123,13 @@ public class JarHell {
             }
             // now just parse as ordinary file
             try {
+                if (element .equals("/")) {
+                    // Eclipse adds this to the classpath when running unit tests...
+                    continue;
+                }
                 URL url = PathUtils.get(element).toUri().toURL();
-                if (urlElements.add(url) == false) {
+                // junit4.childvm.count
+                if (urlElements.add(url) == false && element.endsWith(".jar")) {
                     throw new IllegalStateException("jar hell!" + System.lineSeparator() +
                         "duplicate jar [" + element + "] on classpath: " + classPath);
                 }
@@ -170,7 +164,7 @@ public class JarHell {
                 continue;
             }
             if (path.toString().endsWith(".jar")) {
-                if (!seenJars.add(path)) {
+                if (seenJars.add(path) == false) {
                     throw new IllegalStateException("jar hell!" + System.lineSeparator() +
                                                     "duplicate jar on classpath: " + path);
                 }
@@ -196,18 +190,23 @@ public class JarHell {
                 // case for tests: where we have class files in the classpath
                 final Path root = PathUtils.get(url.toURI());
                 final String sep = root.getFileSystem().getSeparator();
-                Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                        String entry = root.relativize(file).toString();
-                        if (entry.endsWith(".class")) {
-                            // normalize with the os separator, remove '.class'
-                            entry = entry.replace(sep, ".").substring(0,  entry.length() - ".class".length());
-                            checkClass(clazzes, entry, path);
+
+                // don't try and walk class or resource directories that don't exist
+                // gradle will add these to the classpath even if they never get created
+                if (Files.exists(root)) {
+                    Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                            String entry = root.relativize(file).toString();
+                            if (entry.endsWith(".class")) {
+                                // normalize with the os separator, remove '.class'
+                                entry = entry.replace(sep, ".").substring(0, entry.length() - ".class".length());
+                                checkClass(clazzes, entry, path);
+                            }
+                            return super.visitFile(file, attrs);
                         }
-                        return super.visitFile(file, attrs);
-                    }
-                });
+                    });
+                }
             }
         }
     }
@@ -223,7 +222,7 @@ public class JarHell {
     }
 
     public static void checkVersionFormat(String targetVersion) {
-        if (!JavaVersion.isValid(targetVersion)) {
+        if (JavaVersion.isValid(targetVersion) == false) {
             throw new IllegalStateException(
                     String.format(
                             Locale.ROOT,

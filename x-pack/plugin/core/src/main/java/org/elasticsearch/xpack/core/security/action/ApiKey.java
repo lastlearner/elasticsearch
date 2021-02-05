@@ -1,11 +1,13 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.security.action;
 
+import org.elasticsearch.Version;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -49,7 +51,11 @@ public final class ApiKey implements ToXContentObject, Writeable {
     }
 
     public ApiKey(StreamInput in) throws IOException {
-        this.name = in.readString();
+        if (in.getVersion().onOrAfter(Version.V_7_5_0)) {
+            this.name = in.readOptionalString();
+        } else {
+            this.name = in.readString();
+        }
         this.id = in.readString();
         this.creation = in.readInstant();
         this.expiration = in.readOptionalInstant();
@@ -103,7 +109,11 @@ public final class ApiKey implements ToXContentObject, Writeable {
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        out.writeString(name);
+        if (out.getVersion().onOrAfter(Version.V_7_5_0)) {
+            out.writeOptionalString(name);
+        } else {
+            out.writeString(name);
+        }
         out.writeString(id);
         out.writeInstant(creation);
         out.writeOptionalInstant(expiration);
@@ -138,7 +148,7 @@ public final class ApiKey implements ToXContentObject, Writeable {
                 && Objects.equals(realm, other.realm);
     }
 
-    static ConstructingObjectParser<ApiKey, Void> PARSER = new ConstructingObjectParser<>("api_key", args -> {
+    static final ConstructingObjectParser<ApiKey, Void> PARSER = new ConstructingObjectParser<>("api_key", args -> {
         return new ApiKey((String) args[0], (String) args[1], Instant.ofEpochMilli((Long) args[2]),
                 (args[3] == null) ? null : Instant.ofEpochMilli((Long) args[3]), (Boolean) args[4], (String) args[5], (String) args[6]);
     });

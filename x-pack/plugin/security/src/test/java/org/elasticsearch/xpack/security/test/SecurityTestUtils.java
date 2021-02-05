@@ -1,13 +1,14 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.test;
 
-import org.elasticsearch.cluster.metadata.AliasMetaData;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
-import org.elasticsearch.cluster.metadata.MetaData;
+import org.elasticsearch.cluster.metadata.AliasMetadata;
+import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
 import org.elasticsearch.cluster.routing.IndexShardRoutingTable;
 import org.elasticsearch.cluster.routing.RecoverySource.ExistingStoreRecoverySource;
@@ -35,7 +36,7 @@ import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
-import static org.elasticsearch.xpack.security.support.SecurityIndexManager.SECURITY_INDEX_NAME;
+import static org.elasticsearch.xpack.core.security.index.RestrictedIndicesNames.SECURITY_MAIN_ALIAS;
 
 public class SecurityTestUtils {
 
@@ -82,11 +83,11 @@ public class SecurityTestUtils {
     /**
      * Adds the index alias {@code .security} to the underlying concrete index.
      */
-    public static MetaData addAliasToMetaData(MetaData metaData, String indexName) {
-        AliasMetaData aliasMetaData = AliasMetaData.newAliasMetaDataBuilder(SECURITY_INDEX_NAME).build();
-        MetaData.Builder metaDataBuilder = new MetaData.Builder(metaData);
-        IndexMetaData indexMetaData = metaData.index(indexName);
-        metaDataBuilder.put(IndexMetaData.builder(indexMetaData).putAlias(aliasMetaData));
-        return metaDataBuilder.build();
+    public static Metadata addAliasToMetadata(Metadata metadata, String indexName) {
+        AliasMetadata aliasMetadata = AliasMetadata.newAliasMetadataBuilder(SECURITY_MAIN_ALIAS).build();
+        Metadata.Builder metadataBuilder = new Metadata.Builder(metadata);
+        IndexMetadata indexMetadata = metadata.index(indexName);
+        metadataBuilder.put(IndexMetadata.builder(indexMetadata).putAlias(aliasMetadata));
+        return metadataBuilder.build();
     }
 }

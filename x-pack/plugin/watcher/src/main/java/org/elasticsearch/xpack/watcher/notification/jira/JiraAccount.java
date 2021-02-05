@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.notification.jira;
 
@@ -61,6 +62,9 @@ public class JiraAccount {
         String url = getSetting(name, settings, SECURE_URL_SETTING);
         try {
             URI uri = new URI(url);
+            if (uri.getScheme() == null) {
+                throw new URISyntaxException("null", "No scheme defined in url");
+            }
             Scheme protocol = Scheme.parse(uri.getScheme());
             if ((protocol == Scheme.HTTP) && (Booleans.isTrue(settings.get(ALLOW_HTTP_SETTING)) == false)) {
                 throw new SettingsException("invalid jira [" + name + "] account settings. unsecure scheme [" + protocol + "]");
@@ -68,7 +72,7 @@ public class JiraAccount {
             this.url = uri;
         } catch (URISyntaxException | IllegalArgumentException e) {
             throw new SettingsException(
-                    "invalid jira [" + name + "] account settings. invalid [" + SECURE_URL_SETTING.getKey() + "] setting", e);
+                "invalid jira [" + name + "] account settings. invalid [" + SECURE_URL_SETTING.getKey() + "] setting", e);
         }
         this.user = getSetting(name, settings, SECURE_USER_SETTING);
         this.password = getSetting(name, settings, SECURE_PASSWORD_SETTING);

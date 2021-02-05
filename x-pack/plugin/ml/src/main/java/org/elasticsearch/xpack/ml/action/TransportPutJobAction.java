@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.action;
 
@@ -35,25 +36,15 @@ public class TransportPutJobAction extends TransportMasterNodeAction<PutJobActio
                                  ThreadPool threadPool, XPackLicenseState licenseState, ActionFilters actionFilters,
                                  IndexNameExpressionResolver indexNameExpressionResolver, JobManager jobManager,
                                  AnalysisRegistry analysisRegistry) {
-        super(PutJobAction.NAME, transportService, clusterService, threadPool, actionFilters,
-                indexNameExpressionResolver, PutJobAction.Request::new);
+        super(PutJobAction.NAME, transportService, clusterService, threadPool, actionFilters, PutJobAction.Request::new,
+            indexNameExpressionResolver, PutJobAction.Response::new, ThreadPool.Names.SAME);
         this.licenseState = licenseState;
         this.jobManager = jobManager;
         this.analysisRegistry = analysisRegistry;
     }
 
     @Override
-    protected String executor() {
-        return ThreadPool.Names.SAME;
-    }
-
-    @Override
-    protected PutJobAction.Response newResponse() {
-        return new PutJobAction.Response();
-    }
-
-    @Override
-    protected void masterOperation(PutJobAction.Request request, ClusterState state,
+    protected void masterOperation(Task task, PutJobAction.Request request, ClusterState state,
                                    ActionListener<PutJobAction.Response> listener) throws Exception {
         jobManager.putJob(request, analysisRegistry, state, listener);
     }
@@ -65,7 +56,7 @@ public class TransportPutJobAction extends TransportMasterNodeAction<PutJobActio
 
     @Override
     protected void doExecute(Task task, PutJobAction.Request request, ActionListener<PutJobAction.Response> listener) {
-        if (licenseState.isMachineLearningAllowed()) {
+        if (licenseState.checkFeature(XPackLicenseState.Feature.MACHINE_LEARNING)) {
             super.doExecute(task, request, listener);
         } else {
             listener.onFailure(LicenseUtils.newComplianceException(XPackField.MACHINE_LEARNING));

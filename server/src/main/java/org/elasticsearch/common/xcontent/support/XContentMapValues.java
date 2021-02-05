@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.xcontent.support;
@@ -60,24 +49,25 @@ public class XContentMapValues {
         }
 
         String key = pathElements[index];
-        Object currentValue = part.get(key);
+        Object currentValue;
         int nextIndex = index + 1;
-        while (currentValue == null && nextIndex != pathElements.length) {
-            key += "." + pathElements[nextIndex];
+
+        while (true) {
             currentValue = part.get(key);
+            if (currentValue != null) {
+                if (currentValue instanceof Map) {
+                    extractRawValues(values, (Map<String, Object>) currentValue, pathElements, nextIndex);
+                } else if (currentValue instanceof List) {
+                    extractRawValues(values, (List) currentValue, pathElements, nextIndex);
+                } else {
+                    values.add(currentValue);
+                }
+            }
+            if (nextIndex == pathElements.length) {
+                return;
+            }
+            key += "." + pathElements[nextIndex];
             nextIndex++;
-        }
-
-        if (currentValue == null) {
-            return;
-        }
-
-        if (currentValue instanceof Map) {
-            extractRawValues(values, (Map<String, Object>) currentValue, pathElements, nextIndex);
-        } else if (currentValue instanceof List) {
-            extractRawValues(values, (List) currentValue, pathElements, nextIndex);
-        } else {
-            values.add(currentValue);
         }
     }
 
@@ -92,49 +82,95 @@ public class XContentMapValues {
             } else if (value instanceof List) {
                 extractRawValues(values, (List) value, pathElements, index);
             } else {
-                values.add(value);
+                if (index == pathElements.length) {
+                    values.add(value);
+                }
             }
         }
     }
 
+    /**
+     * For the provided path, return its value in the xContent map.
+     *
+     * Note that in contrast with {@link XContentMapValues#extractRawValues}, array and object values
+     * can be returned.
+     *
+     * @param path the value's path in the map.
+     *
+     * @return the value associated with the path in the map or 'null' if the path does not exist.
+     */
     public static Object extractValue(String path, Map<?, ?> map) {
+        return extractValue(map, path.split("\\."));
+    }
+
+    public static Object extractValue(Map<?, ?> map, String... pathElements) {
+        if (pathElements.length == 0) {
+            return null;
+        }
+        return XContentMapValues.extractValue(pathElements, 0, map, null);
+    }
+
+    /**
+     * For the provided path, return its value in the xContent map.
+     *
+     * Note that in contrast with {@link XContentMapValues#extractRawValues}, array and object values
+     * can be returned.
+     *
+     * @param path the value's path in the map.
+     * @param nullValue a value to return if the path exists, but the value is 'null'. This helps
+     *                  in distinguishing between a path that doesn't exist vs. a value of 'null'.
+     *
+     * @return the value associated with the path in the map or 'null' if the path does not exist.
+     */
+    public static Object extractValue(String path, Map<?, ?> map, Object nullValue) {
         String[] pathElements = path.split("\\.");
         if (pathElements.length == 0) {
             return null;
         }
-        return extractValue(pathElements, 0, map);
+        return extractValue(pathElements, 0, map, nullValue);
     }
 
-    @SuppressWarnings({"unchecked"})
-    private static Object extractValue(String[] pathElements, int index, Object currentValue) {
-        if (index == pathElements.length) {
-            return currentValue;
-        }
-        if (currentValue == null) {
-            return null;
-        }
-        if (currentValue instanceof Map) {
-            Map map = (Map) currentValue;
-            String key = pathElements[index];
-            Object mapValue = map.get(key);
-            int nextIndex = index + 1;
-            while (mapValue == null && nextIndex != pathElements.length) {
-                key += "." + pathElements[nextIndex];
-                mapValue = map.get(key);
-                nextIndex++;
-            }
-            return extractValue(pathElements, nextIndex, mapValue);
-        }
+    private static Object extractValue(String[] pathElements,
+                                       int index,
+                                       Object currentValue,
+                                       Object nullValue) {
         if (currentValue instanceof List) {
-            List valueList = (List) currentValue;
-            List newList = new ArrayList(valueList.size());
+            List<?> valueList = (List<?>) currentValue;
+            List<Object> newList = new ArrayList<>(valueList.size());
             for (Object o : valueList) {
-                Object listValue = extractValue(pathElements, index, o);
+                Object listValue = extractValue(pathElements, index, o, nullValue);
                 if (listValue != null) {
                     newList.add(listValue);
                 }
             }
             return newList;
+        }
+
+        if (index == pathElements.length) {
+            return currentValue != null ? currentValue : nullValue;
+        }
+
+        if (currentValue instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) currentValue;
+            String key = pathElements[index];
+            int nextIndex = index + 1;
+            while (true) {
+                if (map.containsKey(key)) {
+                    Object mapValue = map.get(key);
+                    if (mapValue == null) {
+                        return nullValue;
+                    }
+                    Object val = extractValue(pathElements, nextIndex, mapValue, nullValue);
+                    if (val != null) {
+                        return val;
+                    }
+                }
+                if (nextIndex == pathElements.length) {
+                    return null;
+                }
+                key += "." + pathElements[nextIndex];
+                nextIndex++;
+            }
         }
         return null;
     }
@@ -264,7 +300,7 @@ public class XContentMapValues {
 
                 List<Object> filteredValue = filter((Iterable<?>) value,
                         subIncludeAutomaton, subIncludeState, excludeAutomaton, excludeState, matchAllAutomaton);
-                if (filteredValue.isEmpty() == false) {
+                if (includeAutomaton.isAccept(includeState) || filteredValue.isEmpty() == false) {
                     filtered.put(key, filteredValue);
                 }
 
@@ -325,6 +361,16 @@ public class XContentMapValues {
     public static String nodeStringValue(Object node, String defaultValue) {
         if (node == null) {
             return defaultValue;
+        }
+        return node.toString();
+    }
+
+    /**
+     * Returns the {@link Object#toString} value of its input, or {@code null} if the input is null
+     */
+    public static String nodeStringValue(Object node) {
+        if (node == null) {
+            return null;
         }
         return node.toString();
     }

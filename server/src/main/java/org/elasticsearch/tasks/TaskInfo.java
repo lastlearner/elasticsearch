@@ -1,25 +1,13 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.tasks;
 
-import org.elasticsearch.Version;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesReference;
@@ -48,7 +36,7 @@ import static org.elasticsearch.common.xcontent.ConstructingObjectParser.optiona
  * <p>
  * Tasks are used for communication with transport actions. As a result, they can contain callback
  * references as well as mutable state. That makes it impractical to send tasks over transport channels
- * and use in APIs. Instead, immutable and streamable TaskInfo objects are used to represent
+ * and use in APIs. Instead, immutable and writeable TaskInfo objects are used to represent
  * snapshot information about currently running tasks.
  */
 public final class TaskInfo implements Writeable, ToXContentFragment {
@@ -99,11 +87,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         runningTimeNanos = in.readLong();
         cancellable = in.readBoolean();
         parentTaskId = TaskId.readFromStream(in);
-        if (in.getVersion().onOrAfter(Version.V_6_2_0)) {
-            headers = in.readMap(StreamInput::readString, StreamInput::readString);
-        } else {
-            headers = Collections.emptyMap();
-        }
+        headers = in.readMap(StreamInput::readString, StreamInput::readString);
     }
 
     @Override
@@ -117,9 +101,7 @@ public final class TaskInfo implements Writeable, ToXContentFragment {
         out.writeLong(runningTimeNanos);
         out.writeBoolean(cancellable);
         parentTaskId.writeTo(out);
-        if (out.getVersion().onOrAfter(Version.V_6_2_0)) {
-            out.writeMap(headers, StreamOutput::writeString, StreamOutput::writeString);
-        }
+        out.writeMap(headers, StreamOutput::writeString, StreamOutput::writeString);
     }
 
     public TaskId getTaskId() {

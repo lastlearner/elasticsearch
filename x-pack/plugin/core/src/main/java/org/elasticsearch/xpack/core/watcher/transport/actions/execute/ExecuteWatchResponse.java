@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.watcher.transport.actions.execute;
 
@@ -32,7 +33,10 @@ public class ExecuteWatchResponse extends ActionResponse implements ToXContentOb
     private String recordId;
     private XContentSource recordSource;
 
-    public ExecuteWatchResponse() {
+    public ExecuteWatchResponse(StreamInput in) throws IOException {
+        super(in);
+        recordId = in.readString();
+        recordSource = XContentSource.readFrom(in);
     }
 
     public ExecuteWatchResponse(String recordId, BytesReference recordSource, XContentType contentType) {
@@ -74,15 +78,7 @@ public class ExecuteWatchResponse extends ActionResponse implements ToXContentOb
     }
 
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        recordId = in.readString();
-        recordSource = XContentSource.readFrom(in);
-    }
-
-    @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         out.writeString(recordId);
         XContentSource.writeTo(recordSource, out);
     }

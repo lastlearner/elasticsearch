@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.indices.recovery;
 
@@ -26,10 +15,14 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefIterator;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesReference;
+import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.lease.Releasable;
+import org.elasticsearch.common.lease.Releasables;
+import org.elasticsearch.common.util.concurrent.AbstractRefCounted;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.index.store.Store;
-import org.elasticsearch.index.store.StoreFileMetaData;
+import org.elasticsearch.index.store.StoreFileMetadata;
+import org.elasticsearch.transport.Transports;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -39,10 +32,12 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class MultiFileWriter implements Releasable {
+public class MultiFileWriter extends AbstractRefCounted implements Releasable {
 
     public MultiFileWriter(Store store, RecoveryState.Index indexState, String tempFilePrefix, Logger logger, Runnable ensureOpen) {
+        super("multi_file_writer");
         this.store = store;
         this.indexState = indexState;
         this.tempFilePrefix = tempFilePrefix;
@@ -51,6 +46,7 @@ public class MultiFileWriter implements Releasable {
     }
 
     private final Runnable ensureOpen;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
     private final Logger logger;
     private final Store store;
     private final RecoveryState.Index indexState;
@@ -62,10 +58,16 @@ public class MultiFileWriter implements Releasable {
 
     final Map<String, String> tempFileNames = ConcurrentCollections.newConcurrentMap();
 
-    public void writeFileChunk(StoreFileMetaData fileMetaData, long position, BytesReference content, boolean lastChunk)
+    public void writeFileChunk(StoreFileMetadata fileMetadata, long position, ReleasableBytesReference content, boolean lastChunk)
         throws IOException {
-        final FileChunkWriter writer = fileChunkWriters.computeIfAbsent(fileMetaData.name(), name -> new FileChunkWriter());
-        writer.writeChunk(new FileChunk(fileMetaData, content, position, lastChunk));
+        assert Transports.assertNotTransportThread("multi_file_writer");
+        final FileChunkWriter writer = fileChunkWriters.computeIfAbsent(fileMetadata.name(), name -> new FileChunkWriter());
+        incRef();
+        try {
+            writer.writeChunk(new FileChunk(fileMetadata, content, position, lastChunk));
+        } finally {
+            decRef();
+        }
     }
 
     /** Get a temporary name for the provided file name. */
@@ -91,7 +93,7 @@ public class MultiFileWriter implements Releasable {
      * Note: You can use {@link #getOpenIndexOutput(String)} with the same filename to retrieve the same IndexOutput
      * at a later stage
      */
-    public IndexOutput openAndPutIndexOutput(String fileName, StoreFileMetaData metaData, Store store) throws IOException {
+    public IndexOutput openAndPutIndexOutput(String fileName, StoreFileMetadata metadata, Store store) throws IOException {
         ensureOpen.run();
         String tempFileName = getTempNameForFile(fileName);
         if (tempFileNames.containsKey(tempFileName)) {
@@ -99,17 +101,17 @@ public class MultiFileWriter implements Releasable {
         }
         // add first, before it's created
         tempFileNames.put(tempFileName, fileName);
-        IndexOutput indexOutput = store.createVerifyingOutput(tempFileName, metaData, IOContext.DEFAULT);
+        IndexOutput indexOutput = store.createVerifyingOutput(tempFileName, metadata, IOContext.DEFAULT);
         openIndexOutputs.put(fileName, indexOutput);
         return indexOutput;
     }
 
-    private void innerWriteFileChunk(StoreFileMetaData fileMetaData, long position,
+    private void innerWriteFileChunk(StoreFileMetadata fileMetadata, long position,
                                      BytesReference content, boolean lastChunk) throws IOException {
-        final String name = fileMetaData.name();
+        final String name = fileMetadata.name();
         IndexOutput indexOutput;
         if (position == 0) {
-            indexOutput = openAndPutIndexOutput(name, fileMetaData, store);
+            indexOutput = openAndPutIndexOutput(name, fileMetadata, store);
         } else {
             indexOutput = getOpenIndexOutput(name);
         }
@@ -120,7 +122,7 @@ public class MultiFileWriter implements Releasable {
             indexOutput.writeBytes(scratch.bytes, scratch.offset, scratch.length);
         }
         indexState.addRecoveredBytesToFile(name, content.length());
-        if (indexOutput.getFilePointer() >= fileMetaData.length() || lastChunk) {
+        if (indexOutput.getFilePointer() >= fileMetadata.length() || lastChunk) {
             try {
                 Store.verify(indexOutput);
             } finally {
@@ -138,6 +140,14 @@ public class MultiFileWriter implements Releasable {
 
     @Override
     public void close() {
+        if (closed.compareAndSet(false, true)) {
+            decRef();
+        }
+    }
+
+    @Override
+    protected void closeInternal() {
+        Releasables.close(fileChunkWriters.values());
         fileChunkWriters.clear();
         // clean open index outputs
         Iterator<Map.Entry<String, IndexOutput>> iterator = openIndexOutputs.entrySet().iterator();
@@ -166,20 +176,25 @@ public class MultiFileWriter implements Releasable {
         store.renameTempFilesSafe(tempFileNames);
     }
 
-    static final class FileChunk {
-        final StoreFileMetaData md;
-        final BytesReference content;
+    private static final class FileChunk implements Releasable {
+        final StoreFileMetadata md;
+        final ReleasableBytesReference content;
         final long position;
         final boolean lastChunk;
-        FileChunk(StoreFileMetaData md, BytesReference content, long position, boolean lastChunk) {
+        FileChunk(StoreFileMetadata md, ReleasableBytesReference content, long position, boolean lastChunk) {
             this.md = md;
-            this.content = content;
+            this.content = content.retain();
             this.position = position;
             this.lastChunk = lastChunk;
         }
+
+        @Override
+        public void close() {
+            content.decRef();
+        }
     }
 
-    private final class FileChunkWriter {
+    private final class FileChunkWriter implements Releasable {
         // chunks can be delivered out of order, we need to buffer chunks if there's a gap between them.
         final PriorityQueue<FileChunk> pendingChunks = new PriorityQueue<>(Comparator.comparing(fc -> fc.position));
         long lastPosition = 0;
@@ -197,17 +212,24 @@ public class MultiFileWriter implements Releasable {
                     }
                     pendingChunks.remove();
                 }
-                innerWriteFileChunk(chunk.md, chunk.position, chunk.content, chunk.lastChunk);
-                synchronized (this) {
-                    assert lastPosition == chunk.position : "last_position " + lastPosition + " != chunk_position " + chunk.position;
-                    lastPosition += chunk.content.length();
-                    if (chunk.lastChunk) {
-                        assert pendingChunks.isEmpty() == true : "still have pending chunks [" + pendingChunks + "]";
-                        fileChunkWriters.remove(chunk.md.name());
-                        assert fileChunkWriters.containsValue(this) == false : "chunk writer [" + newChunk.md + "] was not removed";
+                try (chunk) {
+                    innerWriteFileChunk(chunk.md, chunk.position, chunk.content, chunk.lastChunk);
+                    synchronized (this) {
+                        assert lastPosition == chunk.position : "last_position " + lastPosition + " != chunk_position " + chunk.position;
+                        lastPosition += chunk.content.length();
+                        if (chunk.lastChunk) {
+                            assert pendingChunks.isEmpty() : "still have pending chunks [" + pendingChunks + "]";
+                            fileChunkWriters.remove(chunk.md.name());
+                            assert fileChunkWriters.containsValue(this) == false : "chunk writer [" + newChunk.md + "] was not removed";
+                        }
                     }
                 }
             }
+        }
+
+        @Override
+        public synchronized void close() {
+            Releasables.close(pendingChunks);
         }
     }
 }

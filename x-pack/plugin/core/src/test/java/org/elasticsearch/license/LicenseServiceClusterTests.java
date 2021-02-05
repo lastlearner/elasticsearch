@@ -1,11 +1,13 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.license;
 
 import org.elasticsearch.analysis.common.CommonAnalysisPlugin;
+import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.env.Environment;
@@ -20,12 +22,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Set;
 
 import static org.elasticsearch.test.ESIntegTestCase.Scope.TEST;
+import static org.elasticsearch.test.NodeRoles.addRoles;
 import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.nullValue;
 
-@ClusterScope(scope = TEST, numDataNodes = 0, numClientNodes = 0, maxNumDataNodes = 0, transportClientRatio = 0)
+@ClusterScope(scope = TEST, numDataNodes = 0, numClientNodes = 0, maxNumDataNodes = 0)
 public class LicenseServiceClusterTests extends AbstractLicensesIntegrationTestCase {
 
     @Override
@@ -40,19 +43,13 @@ public class LicenseServiceClusterTests extends AbstractLicensesIntegrationTestC
 
     private Settings.Builder nodeSettingsBuilder(int nodeOrdinal) {
         return Settings.builder()
-                .put(super.nodeSettings(nodeOrdinal))
-                .put("node.data", true)
-                .put("resource.reload.interval.high", "500ms"); // for license mode file watcher
+            .put(addRoles(super.nodeSettings(nodeOrdinal), Set.of(DiscoveryNodeRole.DATA_ROLE)))
+            .put("resource.reload.interval.high", "500ms"); // for license mode file watcher
     }
 
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
         return Arrays.asList(LocalStateCompositeXPackPlugin.class, CommonAnalysisPlugin.class, Netty4Plugin.class);
-    }
-
-    @Override
-    protected Collection<Class<? extends Plugin>> transportClientPlugins() {
-        return nodePlugins();
     }
 
     public void testClusterRestartWithLicense() throws Exception {
@@ -78,14 +75,14 @@ public class LicenseServiceClusterTests extends AbstractLicensesIntegrationTestC
         assertThat(licensingClient.prepareGetLicense().get().license(), equalTo(license));
         logger.info("--> remove licenses");
         licensingClient.prepareDeleteLicense().get();
-        assertOperationMode(License.OperationMode.MISSING);
+        assertOperationMode(License.OperationMode.BASIC);
 
         logger.info("--> restart all nodes");
         internalCluster().fullRestart();
         licensingClient = new LicensingClient(client());
         ensureYellow();
-        assertThat(licensingClient.prepareGetLicense().get().license(), nullValue());
-        assertOperationMode(License.OperationMode.MISSING);
+        assertTrue(License.LicenseType.isBasic(licensingClient.prepareGetLicense().get().license().type()));
+        assertOperationMode(License.OperationMode.BASIC);
 
 
         wipeAllLicenses();
@@ -174,16 +171,15 @@ public class LicenseServiceClusterTests extends AbstractLicensesIntegrationTestC
         assertLicenseActive(true);
     }
 
-    private void assertOperationMode(License.OperationMode operationMode) throws InterruptedException {
-        boolean success = awaitBusy(() -> {
+    private void assertOperationMode(License.OperationMode operationMode) throws Exception {
+        assertBusy(() -> {
             for (XPackLicenseState licenseState : internalCluster().getDataNodeInstances(XPackLicenseState.class)) {
                 if (licenseState.getOperationMode() == operationMode) {
-                    return true;
+                    return;
                 }
             }
-            return false;
+            fail("No data nodes found with operation mode [" + operationMode + "]");
         });
-        assertTrue(success);
     }
 
     private void writeCloudInternalMode(String mode) throws Exception {

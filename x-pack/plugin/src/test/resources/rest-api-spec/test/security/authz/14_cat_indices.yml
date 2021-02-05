@@ -1,7 +1,7 @@
 ---
 setup:
   - skip:
-      features: headers
+      features: ["headers", "allowed_warnings"]
 
   - do:
       cluster.health:
@@ -23,7 +23,7 @@ setup:
         username: "cat_user"
         body:  >
           {
-            "password" : "cat_password",
+            "password" : "cat_secret_password",
             "roles" : [ "cat_some_indices_role" ],
             "full_name" : "Meow"
           }
@@ -43,6 +43,20 @@ setup:
           settings:
             number_of_shards: "1"
             number_of_replicas: "0"
+
+  - do:
+      indices.create:
+        index: index3
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      indices.close:
+        index:  index3
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
 
 ---
 teardown:
@@ -65,7 +79,7 @@ teardown:
 "Test empty request while no-authorized index":
 
   - do:
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices: {}
 
   - match:
@@ -84,7 +98,7 @@ teardown:
             number_of_replicas: "0"
 
   - do:
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices: {}
 
   - match:
@@ -101,6 +115,65 @@ teardown:
                   (\d+|\d+[.]\d+)(kb|b) \s*
                 )
                 $/
+
+---
+"Test empty request while single authorized closed index":
+
+  - skip:
+      version: "all"
+      reason: "AwaitsFix https://github.com/elastic/elasticsearch/issues/47875"
+      features: ["allowed_warnings"]
+
+  - do:
+      indices.create:
+        index: index_to_monitor
+        body:
+          settings:
+            number_of_shards: 1
+            number_of_replicas: 1
+
+  - do:
+      index:
+        index:  index_to_monitor
+        id:     0
+        body:   { foo: bar }
+
+  - do:
+      index:
+        index:  index_to_monitor
+        id:     1
+        body:   { foo: bar }
+
+  - do:
+      index:
+        index:  index_to_monitor
+        id:     2
+        body:   { foo: bar }
+
+  - do:
+      indices.close:
+        index:  index_to_monitor
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
+
+  - do:
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
+      cat.indices: {}
+
+  - match:
+      $body: |
+        /^(yellow  \s+
+           close   \s+
+           index_to_monitor \s+
+           ([a-zA-Z0-9=/_+]|[\\\-]){22} \s+
+           1      \s+
+           1      \s+
+                  \s+
+                  \s+
+                  \s+
+                  \s*
+         )
+         $/
 
 ---
 "Test explicit request while multiple authorized indices":
@@ -122,7 +195,7 @@ teardown:
             number_of_replicas: "0"
 
   - do:
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices:
         index: "this_index,index_to_monitor"
         v: false
@@ -135,15 +208,76 @@ teardown:
 
   - do:
       catch: forbidden
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices:
         index: "index1,index_to_monitor"
 
   - do:
       catch: forbidden
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices:
         index: "this_*,index2"
+
+---
+"Test explicit request while multiple opened/closed authorized indices":
+
+  - do:
+      indices.create:
+        index: index_to_monitor
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      indices.create:
+        index: this_index
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      indices.create:
+        index: this_index_is_closed
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
+      cat.indices:
+        index: "this_index,index_to_monitor,this_index_is_closed"
+        v: false
+        h: i
+
+  - match:
+      $body: |
+        /^(this_index \s*\n index_to_monitor \s*\n this_index_is_closed \n?)
+          |(this_index \s*\n this_index_is_closed \s*\n index_to_monitor \n?)
+          |(this_index_is_closed \s*\n this_index \s*\n index_to_monitor \n?)
+          |(this_index_is_closed \s*\n index_to_monitor \s*\n this_index \n?)
+          |(index_to_monitor \s*\n this_index \s*\n this_index_is_closed \n?)
+          |(index_to_monitor \s*\n this_index_is_closed \s*\n this_index \n?)$/
+
+  - do:
+      catch: forbidden
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
+      cat.indices:
+        index: "index1,index_to_monitor"
+
+  - do:
+      catch: forbidden
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
+      cat.indices:
+        index: "this_*,index2"
+
+  - do:
+      catch: forbidden
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
+      cat.indices:
+        index: "this_index_is_closed,index2"
 
 ---
 "Test wildcard request with multiple authorized indices":
@@ -181,7 +315,7 @@ teardown:
             number_of_replicas: "0"
 
   - do:
-      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3Bhc3N3b3Jk" } # cat_user
+      headers: { Authorization: "Basic Y2F0X3VzZXI6Y2F0X3NlY3JldF9wYXNzd29yZA==" } # cat_user
       cat.indices:
         index: "t*,i*"
         v: false

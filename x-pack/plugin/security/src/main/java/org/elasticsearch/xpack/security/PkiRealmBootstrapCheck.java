@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security;
 
@@ -31,18 +32,18 @@ class PkiRealmBootstrapCheck implements BootstrapCheck {
     }
 
     /**
-     * If a PKI realm is enabled, checks to see if SSL and Client authentication are enabled on at
+     * If a PKI realm is enabled, and does not support delegation(default), checks to see if SSL and Client authentication are enabled on at
      * least one network communication layer.
      */
     @Override
     public BootstrapCheckResult check(BootstrapContext context) {
         final Settings settings = context.settings();
         final Map<RealmIdentifier, Settings> realms = RealmSettings.getRealmSettings(settings);
-        final boolean pkiRealmEnabled = realms.entrySet().stream()
+        final boolean pkiRealmEnabledWithoutDelegation = realms.entrySet().stream()
                 .filter(e -> PkiRealmSettings.TYPE.equals(e.getKey().getType()))
                 .map(Map.Entry::getValue)
-                .anyMatch(s -> s.getAsBoolean("enabled", true));
-        if (pkiRealmEnabled) {
+                .anyMatch(s -> s.getAsBoolean("enabled", true) && (false == s.getAsBoolean("delegation.enabled", false)));
+        if (pkiRealmEnabledWithoutDelegation) {
             for (String contextName : getSslContextNames(settings)) {
                 final SSLConfiguration configuration = sslService.getSSLConfiguration(contextName);
                 if (sslService.isSSLClientAuthEnabled(configuration)) {

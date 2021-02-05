@@ -1,26 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.action.support.nodes;
 
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ActionRunnable;
 import org.elasticsearch.action.FailedNodeException;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.HandledTransportAction;
@@ -28,6 +18,7 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.NodeShouldNotConnectException;
@@ -46,11 +37,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
-import java.util.function.Supplier;
 
 public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest<NodesRequest>,
                                            NodesResponse extends BaseNodesResponse,
-                                           NodeRequest extends BaseNodeRequest,
+                                           NodeRequest extends TransportRequest,
                                            NodeResponse extends BaseNodeResponse>
     extends HandledTransportAction<NodesRequest, NodesResponse> {
 
@@ -58,13 +48,26 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
     protected final ClusterService clusterService;
     protected final TransportService transportService;
     protected final Class<NodeResponse> nodeResponseClass;
+    protected final String transportNodeAction;
 
-    final String transportNodeAction;
+    private final String finalExecutor;
 
+    /**
+     * @param actionName        action name
+     * @param threadPool        thread-pool
+     * @param clusterService    cluster service
+     * @param transportService  transport service
+     * @param actionFilters     action filters
+     * @param request           node request writer
+     * @param nodeRequest       node request reader
+     * @param nodeExecutor      executor to execute node action on
+     * @param finalExecutor     executor to execute final collection of all responses on
+     * @param nodeResponseClass class of the node responses
+     */
     protected TransportNodesAction(String actionName, ThreadPool threadPool,
                                    ClusterService clusterService, TransportService transportService, ActionFilters actionFilters,
-                                   Supplier<NodesRequest> request, Supplier<NodeRequest> nodeRequest, String nodeExecutor,
-                                   Class<NodeResponse> nodeResponseClass) {
+                                   Writeable.Reader<NodesRequest> request, Writeable.Reader<NodeRequest> nodeRequest, String nodeExecutor,
+                                   String finalExecutor, Class<NodeResponse> nodeResponseClass) {
         super(actionName, transportService, actionFilters, request);
         this.threadPool = threadPool;
         this.clusterService = Objects.requireNonNull(clusterService);
@@ -72,9 +75,24 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
         this.nodeResponseClass = Objects.requireNonNull(nodeResponseClass);
 
         this.transportNodeAction = actionName + "[n]";
-
+        this.finalExecutor = finalExecutor;
         transportService.registerRequestHandler(
-            transportNodeAction, nodeRequest, nodeExecutor, new NodeTransportHandler());
+                transportNodeAction, nodeExecutor, nodeRequest, new NodeTransportHandler());
+    }
+
+    /**
+     * Same as {@link #TransportNodesAction(String, ThreadPool, ClusterService, TransportService, ActionFilters, Writeable.Reader,
+     * Writeable.Reader, String, String, Class)} but executes final response collection on the transport thread except for when the final
+     * node response is received from the local node, in which case {@code nodeExecutor} is used.
+     * This constructor should only be used for actions for which the creation of the final response is fast enough to be safely executed
+     * on a transport thread.
+     */
+    protected TransportNodesAction(String actionName, ThreadPool threadPool,
+                                   ClusterService clusterService, TransportService transportService, ActionFilters actionFilters,
+                                   Writeable.Reader<NodesRequest> request, Writeable.Reader<NodeRequest> nodeRequest, String nodeExecutor,
+                                   Class<NodeResponse> nodeResponseClass) {
+        this(actionName, threadPool, clusterService, transportService, actionFilters, request, nodeRequest, nodeExecutor,
+                ThreadPool.Names.SAME, nodeResponseClass);
     }
 
     @Override
@@ -91,7 +109,7 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
      * @throws NullPointerException if {@code nodesResponses} is {@code null}
      * @see #newResponse(BaseNodesRequest, List, List)
      */
-    protected NodesResponse newResponse(NodesRequest request, AtomicReferenceArray nodesResponses) {
+    protected NodesResponse newResponse(NodesRequest request, AtomicReferenceArray<?> nodesResponses) {
         final List<NodeResponse> responses = new ArrayList<>();
         final List<FailedNodeException> failures = new ArrayList<>();
 
@@ -119,15 +137,11 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
      */
     protected abstract NodesResponse newResponse(NodesRequest request, List<NodeResponse> responses, List<FailedNodeException> failures);
 
-    protected abstract NodeRequest newNodeRequest(String nodeId, NodesRequest request);
+    protected abstract NodeRequest newNodeRequest(NodesRequest request);
 
-    protected abstract NodeResponse newNodeResponse();
+    protected abstract NodeResponse newNodeResponse(StreamInput in) throws IOException;
 
-    protected abstract NodeResponse nodeOperation(NodeRequest request);
-
-    protected NodeResponse nodeOperation(NodeRequest request, Task task) {
-        return nodeOperation(request);
-    }
+    protected abstract NodeResponse nodeOperation(NodeRequest request, Task task);
 
     /**
      * resolve node ids to concrete nodes of the incoming request
@@ -138,6 +152,12 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
         request.setConcreteNodes(Arrays.stream(nodesIds).map(clusterState.nodes()::get).toArray(DiscoveryNode[]::new));
     }
 
+    /**
+     * Get a backwards compatible transport action name
+     */
+    protected String getTransportNodeAction(DiscoveryNode node) {
+        return transportNodeAction;
+    }
 
     class AsyncAction {
 
@@ -165,27 +185,22 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
                 threadPool.generic().execute(() -> listener.onResponse(newResponse(request, responses)));
                 return;
             }
-            TransportRequestOptions.Builder builder = TransportRequestOptions.builder();
-            if (request.timeout() != null) {
-                builder.withTimeout(request.timeout());
-            }
+            final TransportRequestOptions transportRequestOptions = TransportRequestOptions.timeout(request.timeout());
             for (int i = 0; i < nodes.length; i++) {
                 final int idx = i;
                 final DiscoveryNode node = nodes[i];
                 final String nodeId = node.getId();
                 try {
-                    TransportRequest nodeRequest = newNodeRequest(nodeId, request);
+                    TransportRequest nodeRequest = newNodeRequest(request);
                     if (task != null) {
                         nodeRequest.setParentTask(clusterService.localNode().getId(), task.getId());
                     }
 
-                    transportService.sendRequest(node, transportNodeAction, nodeRequest, builder.build(),
+                    transportService.sendRequest(node, getTransportNodeAction(node), nodeRequest, transportRequestOptions,
                             new TransportResponseHandler<NodeResponse>() {
                                 @Override
                                 public NodeResponse read(StreamInput in) throws IOException {
-                                    NodeResponse nodeResponse = newNodeResponse();
-                                    nodeResponse.readFrom(in);
-                                    return nodeResponse;
+                                    return newNodeResponse(in);
                                 }
 
                                 @Override
@@ -196,11 +211,6 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
                                 @Override
                                 public void handleException(TransportException exp) {
                                     onFailure(idx, node.getId(), exp);
-                                }
-
-                                @Override
-                                public String executor() {
-                                    return ThreadPool.Names.SAME;
                                 }
                             });
                 } catch (Exception e) {
@@ -227,15 +237,7 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
         }
 
         private void finishHim() {
-            NodesResponse finalResponse;
-            try {
-                finalResponse = newResponse(request, responses);
-            } catch (Exception e) {
-                logger.debug("failed to combine responses from nodes", e);
-                listener.onFailure(e);
-                return;
-            }
-            listener.onResponse(finalResponse);
+            threadPool.executor(finalExecutor).execute(ActionRunnable.supply(listener, () -> newResponse(request, responses)));
         }
     }
 

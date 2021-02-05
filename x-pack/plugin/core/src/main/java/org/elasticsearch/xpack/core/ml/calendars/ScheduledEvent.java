@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.ml.calendars;
 
@@ -14,7 +15,6 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.ObjectParser;
 import org.elasticsearch.common.xcontent.ToXContentObject;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.xpack.core.ml.job.config.DetectionRule;
 import org.elasticsearch.xpack.core.ml.job.config.Operator;
 import org.elasticsearch.xpack.core.ml.job.config.RuleAction;
@@ -23,7 +23,7 @@ import org.elasticsearch.xpack.core.ml.job.messages.Messages;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.core.ml.utils.Intervals;
 import org.elasticsearch.xpack.core.ml.utils.ToXContentParams;
-import org.elasticsearch.xpack.core.ml.utils.time.TimeUtils;
+import org.elasticsearch.xpack.core.common.time.TimeUtils;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -51,25 +51,14 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
         ObjectParser<ScheduledEvent.Builder, Void> parser = new ObjectParser<>("scheduled_event", ignoreUnknownFields, Builder::new);
 
         parser.declareString(ScheduledEvent.Builder::description, DESCRIPTION);
-        parser.declareField(ScheduledEvent.Builder::startTime, p -> {
-            if (p.currentToken() == XContentParser.Token.VALUE_NUMBER) {
-                return Instant.ofEpochMilli(p.longValue());
-            } else if (p.currentToken() == XContentParser.Token.VALUE_STRING) {
-                return Instant.ofEpochMilli(TimeUtils.dateStringToEpoch(p.text()));
-            }
-            throw new IllegalArgumentException(
-                    "unexpected token [" + p.currentToken() + "] for [" + START_TIME.getPreferredName() + "]");
-        }, START_TIME, ObjectParser.ValueType.VALUE);
-        parser.declareField(ScheduledEvent.Builder::endTime, p -> {
-            if (p.currentToken() == XContentParser.Token.VALUE_NUMBER) {
-                return Instant.ofEpochMilli(p.longValue());
-            } else if (p.currentToken() == XContentParser.Token.VALUE_STRING) {
-                return Instant.ofEpochMilli(TimeUtils.dateStringToEpoch(p.text()));
-            }
-            throw new IllegalArgumentException(
-                    "unexpected token [" + p.currentToken() + "] for [" + END_TIME.getPreferredName() + "]");
-        }, END_TIME, ObjectParser.ValueType.VALUE);
-
+        parser.declareField(ScheduledEvent.Builder::startTime,
+            p -> TimeUtils.parseTimeFieldToInstant(p, START_TIME.getPreferredName()),
+            START_TIME,
+            ObjectParser.ValueType.VALUE);
+        parser.declareField(ScheduledEvent.Builder::endTime,
+            p -> TimeUtils.parseTimeFieldToInstant(p, END_TIME.getPreferredName()),
+            END_TIME,
+            ObjectParser.ValueType.VALUE);
         parser.declareString(ScheduledEvent.Builder::calendarId, Calendar.ID);
         parser.declareString((builder, s) -> {}, TYPE);
 
@@ -88,16 +77,16 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
 
     ScheduledEvent(String description, Instant startTime, Instant endTime, String calendarId, @Nullable String eventId) {
         this.description = Objects.requireNonNull(description);
-        this.startTime = Objects.requireNonNull(startTime);
-        this.endTime = Objects.requireNonNull(endTime);
+        this.startTime = Instant.ofEpochMilli(Objects.requireNonNull(startTime).toEpochMilli());
+        this.endTime = Instant.ofEpochMilli(Objects.requireNonNull(endTime).toEpochMilli());
         this.calendarId = Objects.requireNonNull(calendarId);
         this.eventId = eventId;
     }
 
     public ScheduledEvent(StreamInput in) throws IOException {
         description = in.readString();
-        startTime = Instant.ofEpochMilli(in.readVLong());
-        endTime = Instant.ofEpochMilli(in.readVLong());
+        startTime = in.readInstant();
+        endTime = in.readInstant();
         calendarId = in.readString();
         eventId = in.readOptionalString();
     }
@@ -152,8 +141,8 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(description);
-        out.writeVLong(startTime.toEpochMilli());
-        out.writeVLong(endTime.toEpochMilli());
+        out.writeInstant(startTime);
+        out.writeInstant(endTime);
         out.writeString(calendarId);
         out.writeOptionalString(eventId);
     }
@@ -168,7 +157,7 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
         if (eventId != null) {
             builder.field(EVENT_ID.getPreferredName(), eventId);
         }
-        if (params.paramAsBoolean(ToXContentParams.INCLUDE_TYPE, false)) {
+        if (params.paramAsBoolean(ToXContentParams.FOR_INTERNAL_STORAGE, false)) {
             builder.field(TYPE.getPreferredName(), SCHEDULED_EVENT_TYPE);
         }
         builder.endObject();
@@ -181,22 +170,14 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
             return true;
         }
 
-        if (!(obj instanceof ScheduledEvent)) {
+        if ((obj instanceof ScheduledEvent) == false) {
             return false;
         }
 
         ScheduledEvent other = (ScheduledEvent) obj;
-        // In Java 8 the tests pass with ZonedDateTime.isEquals() or ZonedDateTime.toInstant.equals()
-        // but in Java 9 & 10 the same tests fail.
-        // Both isEquals() and toInstant.equals() work the same; convert to epoch seconds and
-        // compare seconds and nanos are equal. For some reason the nanos are different in Java 9 & 10.
-        // It's sufficient to compare just the epoch seconds for the purpose of establishing equality
-        // which only occurs in testing.
-        // Note ZonedDataTime.equals() fails because the time zone and date-time must be the same
-        // which isn't the case in tests where the time zone is randomised.
         return description.equals(other.description)
-                && Objects.equals(startTime.getEpochSecond(), other.startTime.getEpochSecond())
-                && Objects.equals(endTime.getEpochSecond(), other.endTime.getEpochSecond())
+                && Objects.equals(startTime, other.startTime)
+                && Objects.equals(endTime, other.endTime)
                 && calendarId.equals(other.calendarId);
     }
 
@@ -218,12 +199,12 @@ public class ScheduledEvent implements ToXContentObject, Writeable {
         }
 
         public Builder startTime(Instant startTime) {
-            this.startTime = startTime;
+            this.startTime = Instant.ofEpochMilli(Objects.requireNonNull(startTime, START_TIME.getPreferredName()).toEpochMilli());
             return this;
         }
 
         public Builder endTime(Instant endTime) {
-            this.endTime = endTime;
+            this.endTime = Instant.ofEpochMilli(Objects.requireNonNull(endTime, END_TIME.getPreferredName()).toEpochMilli());
             return this;
         }
 

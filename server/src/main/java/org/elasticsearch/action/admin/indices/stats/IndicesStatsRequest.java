@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.action.admin.indices.stats;
@@ -37,6 +26,15 @@ import java.io.IOException;
 public class IndicesStatsRequest extends BroadcastRequest<IndicesStatsRequest> {
 
     private CommonStatsFlags flags = new CommonStatsFlags();
+
+    public IndicesStatsRequest() {
+        super((String[])null);
+    }
+
+    public IndicesStatsRequest(StreamInput in) throws IOException {
+        super(in);
+        flags = new CommonStatsFlags(in);
+    }
 
     /**
      * Sets all flags to return all stats.
@@ -67,23 +65,6 @@ public class IndicesStatsRequest extends BroadcastRequest<IndicesStatsRequest> {
     public IndicesStatsRequest flags(CommonStatsFlags flags) {
         this.flags = flags;
         return this;
-    }
-
-    /**
-     * Document types to return stats for. Mainly affects {@link #indexing(boolean)} when
-     * enabled, returning specific indexing stats for those types.
-     */
-    public IndicesStatsRequest types(String... types) {
-        flags.types(types);
-        return this;
-    }
-
-    /**
-     * Document types to return stats for. Mainly affects {@link #indexing(boolean)} when
-     * enabled, returning specific indexing stats for those types.
-     */
-    public String[] types() {
-        return this.flags.types();
     }
 
     /**
@@ -262,12 +243,25 @@ public class IndicesStatsRequest extends BroadcastRequest<IndicesStatsRequest> {
         return flags.isSet(Flag.Recovery);
     }
 
+    public IndicesStatsRequest bulk(boolean bulk) {
+        flags.set(Flag.Bulk, bulk);
+        return this;
+    }
+    public boolean bulk() {
+        return flags.isSet(Flag.Bulk);
+    }
+
     public boolean includeSegmentFileSizes() {
         return flags.includeSegmentFileSizes();
     }
 
     public IndicesStatsRequest includeSegmentFileSizes(boolean includeSegmentFileSizes) {
         flags.includeSegmentFileSizes(includeSegmentFileSizes);
+        return this;
+    }
+
+    public IndicesStatsRequest includeUnloadedSegments(boolean includeUnloadedSegments) {
+        flags.includeUnloadedSegments(includeUnloadedSegments);
         return this;
     }
 
@@ -278,8 +272,7 @@ public class IndicesStatsRequest extends BroadcastRequest<IndicesStatsRequest> {
     }
 
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        flags = new CommonStatsFlags(in);
+    public boolean includeDataStreams() {
+        return true;
     }
 }

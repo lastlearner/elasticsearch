@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.security.action.privilege;
@@ -39,8 +40,7 @@ public class PutPrivilegesRequestTests extends ESTestCase {
         final BytesStreamOutput out = new BytesStreamOutput();
         original.writeTo(out);
 
-        final PutPrivilegesRequest copy = new PutPrivilegesRequest();
-        copy.readFrom(out.bytes().streamInput());
+        final PutPrivilegesRequest copy = new PutPrivilegesRequest(out.bytes().streamInput());
 
         assertThat(original.getPrivileges(), Matchers.equalTo(copy.getPrivileges()));
         assertThat(original.getRefreshPolicy(), Matchers.equalTo(copy.getRefreshPolicy()));

@@ -1,11 +1,13 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.watcher.support.xcontent;
 
 import org.elasticsearch.ElasticsearchParseException;
+import org.elasticsearch.common.CheckedFunction;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.xcontent.DeprecationHandler;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
@@ -21,6 +23,7 @@ import java.time.Clock;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * A xcontent parser that is used by watcher. This is a special parser that is
@@ -119,8 +122,9 @@ public class WatcherXContentParser implements XContentParser {
     }
 
     @Override
-    public Map<String, String> mapStringsOrdered() throws IOException {
-        return parser.mapStringsOrdered();
+    public <T> Map<String, T> map(
+            Supplier<Map<String, T>> mapFactory, CheckedFunction<XContentParser, T, IOException> mapValueParser) throws IOException {
+        return parser.map(mapFactory, mapValueParser);
     }
 
     @Override
@@ -281,6 +285,11 @@ public class WatcherXContentParser implements XContentParser {
     @Override
     public void close() throws IOException {
         parser.close();
+    }
+
+    @Override
+    public boolean useCompatibility() {
+        return false;
     }
 
     @Override

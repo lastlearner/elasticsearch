@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.security.authc.kerberos;
@@ -34,6 +35,9 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import javax.net.ServerSocketFactory;
+
+import static org.elasticsearch.test.ESTestCase.assertBusy;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Utility wrapper around Apache {@link SimpleKdcServer} backed by Unboundid
@@ -90,9 +94,7 @@ public class SimpleKdcLdapServer {
         AccessController.doPrivileged(new PrivilegedExceptionAction<Void>() {
             @Override
             public Void run() throws Exception {
-                if (ESTestCase.awaitBusy(() -> init()) == false) {
-                    throw new IllegalStateException("could not initialize SimpleKdcLdapServer");
-                }
+                assertBusy(() -> assertTrue("Failed to initialize SimpleKdcLdapServer", init()));
                 return null;
             }
         });
@@ -218,7 +220,7 @@ public class SimpleKdcLdapServer {
 
     /**
      * Stop Simple Kdc Server
-     * 
+     *
      * @throws PrivilegedActionException when privileged action threw exception
      */
     public synchronized void stop() throws PrivilegedActionException {

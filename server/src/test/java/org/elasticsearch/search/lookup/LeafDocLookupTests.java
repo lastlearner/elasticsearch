@@ -1,32 +1,19 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.search.lookup;
 
-import org.elasticsearch.index.fielddata.AtomicFieldData;
 import org.elasticsearch.index.fielddata.IndexFieldData;
+import org.elasticsearch.index.fielddata.LeafFieldData;
 import org.elasticsearch.index.fielddata.ScriptDocValues;
 import org.elasticsearch.index.mapper.MappedFieldType;
-import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.test.ESTestCase;
 import org.junit.Before;
 
-import static org.elasticsearch.search.lookup.LeafDocLookup.TYPES_DEPRECATION_MESSAGE;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.Matchers.anyObject;
 import static org.mockito.Mockito.doReturn;
@@ -45,24 +32,11 @@ public class LeafDocLookupTests extends ESTestCase {
         when(fieldType.name()).thenReturn("field");
         when(fieldType.valueForDisplay(anyObject())).then(returnsFirstArg());
 
-        MapperService mapperService = mock(MapperService.class);
-        when(mapperService.fullName("_type")).thenReturn(fieldType);
-        when(mapperService.fullName("field")).thenReturn(fieldType);
-        when(mapperService.fullName("alias")).thenReturn(fieldType);
-
         docValues = mock(ScriptDocValues.class);
+        IndexFieldData<?> fieldData = createFieldData(docValues);
 
-        AtomicFieldData atomicFieldData = mock(AtomicFieldData.class);
-        doReturn(docValues).when(atomicFieldData).getScriptValues();
-
-        IndexFieldData<?> fieldData = mock(IndexFieldData.class);
-        when(fieldData.getFieldName()).thenReturn("field");
-        doReturn(atomicFieldData).when(fieldData).load(anyObject());
-
-        docLookup = new LeafDocLookup(mapperService,
-            ignored -> fieldData,
-            new String[] { "type" },
-            null);
+        docLookup = new LeafDocLookup(field -> field.equals("field") || field.equals("alias") ? fieldType : null,
+            ignored -> fieldData, null);
     }
 
     public void testBasicLookup() {
@@ -70,14 +44,19 @@ public class LeafDocLookupTests extends ESTestCase {
         assertEquals(docValues, fetchedDocValues);
     }
 
-    public void testLookupWithFieldAlias() {
+    public void testFieldAliases() {
         ScriptDocValues<?> fetchedDocValues = docLookup.get("alias");
         assertEquals(docValues, fetchedDocValues);
     }
 
-    public void testTypesDeprecation() {
-        ScriptDocValues<?> fetchedDocValues = docLookup.get("_type");
-        assertEquals(docValues, fetchedDocValues);
-        assertWarnings(TYPES_DEPRECATION_MESSAGE);
+    private IndexFieldData<?> createFieldData(ScriptDocValues scriptDocValues) {
+        LeafFieldData leafFieldData = mock(LeafFieldData.class);
+        doReturn(scriptDocValues).when(leafFieldData).getScriptValues();
+
+        IndexFieldData<?> fieldData = mock(IndexFieldData.class);
+        when(fieldData.getFieldName()).thenReturn("field");
+        doReturn(leafFieldData).when(fieldData).load(anyObject());
+
+        return fieldData;
     }
 }

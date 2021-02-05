@@ -1,38 +1,30 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.rest.action.search;
 
-import org.apache.logging.log4j.LogManager;
+import org.elasticsearch.ExceptionsHelper;
+import org.elasticsearch.Version;
+import org.elasticsearch.action.ActionRequestValidationException;
+import org.elasticsearch.action.search.SearchAction;
+import org.elasticsearch.action.search.SearchContextId;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.Booleans;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.logging.DeprecationLogger;
-import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.action.RestActions;
+import org.elasticsearch.rest.action.RestCancellableNodeClient;
 import org.elasticsearch.rest.action.RestStatusToXContentListener;
 import org.elasticsearch.search.Scroll;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -47,9 +39,11 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.function.IntConsumer;
 
+import static org.elasticsearch.action.ValidateActions.addValidationError;
 import static org.elasticsearch.common.unit.TimeValue.parseTimeValue;
 import static org.elasticsearch.rest.RestRequest.Method.GET;
 import static org.elasticsearch.rest.RestRequest.Method.POST;
@@ -69,30 +63,28 @@ public class RestSearchAction extends BaseRestHandler {
         RESPONSE_PARAMS = Collections.unmodifiableSet(responseParams);
     }
 
-    private static final DeprecationLogger deprecationLogger = new DeprecationLogger(LogManager.getLogger(RestSearchAction.class));
-    public static final String TYPES_DEPRECATION_MESSAGE = "[types removal]" +
-        " Specifying types in search requests is deprecated.";
-
-    public RestSearchAction(Settings settings, RestController controller) {
-        super(settings);
-        controller.registerHandler(GET, "/_search", this);
-        controller.registerHandler(POST, "/_search", this);
-        controller.registerHandler(GET, "/{index}/_search", this);
-        controller.registerHandler(POST, "/{index}/_search", this);
-
-        // Deprecated typed endpoints.
-        controller.registerHandler(GET, "/{index}/{type}/_search", this);
-        controller.registerHandler(POST, "/{index}/{type}/_search", this);
-    }
-
     @Override
     public String getName() {
         return "search_action";
     }
 
     @Override
+    public List<Route> routes() {
+        return List.of(
+            new Route(GET, "/_search"),
+            new Route(POST, "/_search"),
+            new Route(GET, "/{index}/_search"),
+            new Route(POST, "/{index}/_search"));
+    }
+
+    @Override
     public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
-        SearchRequest searchRequest = new SearchRequest();
+        SearchRequest searchRequest;
+        if (request.hasParam("min_compatible_shard_node")) {
+            searchRequest = new SearchRequest(Version.fromString(request.param("min_compatible_shard_node")));
+        } else {
+            searchRequest = new SearchRequest();
+        }
         /*
          * We have to pull out the call to `source().size(size)` because
          * _update_by_query and _delete_by_query uses this same parsing
@@ -107,9 +99,12 @@ public class RestSearchAction extends BaseRestHandler {
          */
         IntConsumer setSize = size -> searchRequest.source().size(size);
         request.withContentOrSourceParamParserOrNull(parser ->
-            parseSearchRequest(searchRequest, request, parser, setSize));
+            parseSearchRequest(searchRequest, request, parser, client.getNamedWriteableRegistry(), setSize));
 
-        return channel -> client.search(searchRequest, new RestStatusToXContentListener<>(channel));
+        return channel -> {
+            RestCancellableNodeClient cancelClient = new RestCancellableNodeClient(client, request.getHttpChannel());
+            cancelClient.execute(SearchAction.INSTANCE, searchRequest, new RestStatusToXContentListener<>(channel));
+        };
     }
 
     /**
@@ -121,6 +116,7 @@ public class RestSearchAction extends BaseRestHandler {
      */
     public static void parseSearchRequest(SearchRequest searchRequest, RestRequest request,
                                           XContentParser requestContentParser,
+                                          NamedWriteableRegistry namedWriteableRegistry,
                                           IntConsumer setSize) throws IOException {
 
         if (searchRequest.source() == null) {
@@ -133,7 +129,9 @@ public class RestSearchAction extends BaseRestHandler {
 
         final int batchedReduceSize = request.paramAsInt("batched_reduce_size", searchRequest.getBatchedReduceSize());
         searchRequest.setBatchedReduceSize(batchedReduceSize);
-        searchRequest.setPreFilterShardSize(request.paramAsInt("pre_filter_shard_size", searchRequest.getPreFilterShardSize()));
+        if (request.hasParam("pre_filter_shard_size")) {
+            searchRequest.setPreFilterShardSize(request.paramAsInt("pre_filter_shard_size", SearchRequest.DEFAULT_PRE_FILTER_SHARD_SIZE));
+        }
 
         if (request.hasParam("max_concurrent_shard_requests")) {
             // only set if we have the parameter since we auto adjust the max concurrency on the coordinator
@@ -159,23 +157,24 @@ public class RestSearchAction extends BaseRestHandler {
             searchRequest.searchType(searchType);
         }
         parseSearchSource(searchRequest.source(), request, setSize);
-        searchRequest.requestCache(request.paramAsBoolean("request_cache", null));
+        searchRequest.requestCache(request.paramAsBoolean("request_cache", searchRequest.requestCache()));
 
         String scroll = request.param("scroll");
         if (scroll != null) {
             searchRequest.scroll(new Scroll(parseTimeValue(scroll, null, "scroll")));
         }
-
-        if (request.hasParam("type")) {
-            deprecationLogger.deprecatedAndMaybeLog("search_with_types", TYPES_DEPRECATION_MESSAGE);
-            searchRequest.types(Strings.splitStringByCommaToArray(request.param("type")));
-        }
         searchRequest.routing(request.param("routing"));
         searchRequest.preference(request.param("preference"));
         searchRequest.indicesOptions(IndicesOptions.fromRequest(request, searchRequest.indicesOptions()));
-        searchRequest.setCcsMinimizeRoundtrips(request.paramAsBoolean("ccs_minimize_roundtrips", true));
 
         checkRestTotalHits(request, searchRequest);
+
+        if (searchRequest.pointInTimeBuilder() != null) {
+            preparePointInTime(searchRequest, request, namedWriteableRegistry);
+        } else {
+            searchRequest.setCcsMinimizeRoundtrips(
+                request.paramAsBoolean("ccs_minimize_roundtrips", searchRequest.isCcsMinimizeRoundtrips()));
+        }
     }
 
     /**
@@ -188,9 +187,8 @@ public class RestSearchAction extends BaseRestHandler {
             searchSourceBuilder.query(queryBuilder);
         }
 
-        int from = request.paramAsInt("from", -1);
-        if (from != -1) {
-            searchSourceBuilder.from(from);
+        if (request.hasParam("from")) {
+            searchSourceBuilder.from(request.paramAsInt("from", 0));
         }
         int size = request.paramAsInt("size", -1);
         if (size != -1) {
@@ -291,6 +289,37 @@ public class RestSearchAction extends BaseRestHandler {
         }
     }
 
+    static void preparePointInTime(SearchRequest request, RestRequest restRequest, NamedWriteableRegistry namedWriteableRegistry) {
+        assert request.pointInTimeBuilder() != null;
+        ActionRequestValidationException validationException = null;
+        if (request.indices().length > 0) {
+            validationException = addValidationError("[indices] cannot be used with point in time", validationException);
+        }
+        if (request.indicesOptions() != SearchRequest.DEFAULT_INDICES_OPTIONS) {
+            validationException = addValidationError("[indicesOptions] cannot be used with point in time", validationException);
+        }
+        if (request.routing() != null) {
+            validationException = addValidationError("[routing] cannot be used with point in time", validationException);
+        }
+        if (request.preference() != null) {
+            validationException = addValidationError("[preference] cannot be used with point in time", validationException);
+        }
+        if (restRequest.paramAsBoolean("ccs_minimize_roundtrips", false)) {
+            validationException =
+                addValidationError("[ccs_minimize_roundtrips] cannot be used with point in time", validationException);
+            request.setCcsMinimizeRoundtrips(false);
+        }
+        ExceptionsHelper.reThrowIfNotNull(validationException);
+
+        final IndicesOptions indicesOptions = request.indicesOptions();
+        final IndicesOptions stricterIndicesOptions = IndicesOptions.fromOptions(
+            indicesOptions.ignoreUnavailable(), indicesOptions.allowNoIndices(), false, false, false,
+            true, true, indicesOptions.ignoreThrottled());
+        request.indicesOptions(stricterIndicesOptions);
+        final SearchContextId searchContextId = request.pointInTimeBuilder().getSearchContextId(namedWriteableRegistry);
+        request.indices(searchContextId.getActualIndices());
+    }
+
     /**
      * Modify the search request to accurately count the total hits that match the query
      * if {@link #TOTAL_HITS_AS_INT_PARAM} is set.
@@ -320,5 +349,10 @@ public class RestSearchAction extends BaseRestHandler {
     @Override
     protected Set<String> responseParams() {
         return RESPONSE_PARAMS;
+    }
+
+    @Override
+    public boolean allowsUnsafeBuffers() {
+        return true;
     }
 }

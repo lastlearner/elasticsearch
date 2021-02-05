@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.client;
 
@@ -28,6 +17,9 @@ import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.AuthCache;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.entity.GzipCompressingEntity;
+import org.apache.http.client.entity.GzipDecompressingEntity;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpOptions;
@@ -46,17 +38,21 @@ import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.nio.client.methods.HttpAsyncMethods;
 import org.apache.http.nio.protocol.HttpAsyncRequestProducer;
 import org.apache.http.nio.protocol.HttpAsyncResponseConsumer;
-import org.elasticsearch.client.DeadHostState.TimeSupplier;
+import org.apache.http.protocol.HTTP;
 
 import javax.net.ssl.SSLHandshakeException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -72,7 +68,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.zip.GZIPOutputStream;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.singletonList;
 
 /**
@@ -107,16 +106,63 @@ public class RestClient implements Closeable {
     private final NodeSelector nodeSelector;
     private volatile NodeTuple<List<Node>> nodeTuple;
     private final WarningsHandler warningsHandler;
+    private final boolean compressionEnabled;
 
     RestClient(CloseableHttpAsyncClient client, Header[] defaultHeaders, List<Node> nodes, String pathPrefix,
-            FailureListener failureListener, NodeSelector nodeSelector, boolean strictDeprecationMode) {
+            FailureListener failureListener, NodeSelector nodeSelector, boolean strictDeprecationMode,
+            boolean compressionEnabled) {
         this.client = client;
         this.defaultHeaders = Collections.unmodifiableList(Arrays.asList(defaultHeaders));
         this.failureListener = failureListener;
         this.pathPrefix = pathPrefix;
         this.nodeSelector = nodeSelector;
         this.warningsHandler = strictDeprecationMode ? WarningsHandler.STRICT : WarningsHandler.PERMISSIVE;
+        this.compressionEnabled = compressionEnabled;
         setNodes(nodes);
+    }
+
+    /**
+     * Returns a new {@link RestClientBuilder} to help with {@link RestClient} creation.
+     * Creates a new builder instance and sets the nodes that the client will send requests to.
+     *
+     * @param cloudId a valid elastic cloud cloudId that will route to a cluster. The cloudId is located in
+     *                the user console https://cloud.elastic.co and will resemble a string like the following
+     *                optionalHumanReadableName:dXMtZWFzdC0xLmF3cy5mb3VuZC5pbyRlbGFzdGljc2VhcmNoJGtpYmFuYQ==
+     */
+    public static RestClientBuilder builder(String cloudId) {
+        // there is an optional first portion of the cloudId that is a human readable string, but it is not used.
+        if (cloudId.contains(":")) {
+            if (cloudId.indexOf(":") == cloudId.length() - 1) {
+                throw new IllegalStateException("cloudId " + cloudId + " must begin with a human readable identifier followed by a colon");
+            }
+            cloudId = cloudId.substring(cloudId.indexOf(":") + 1);
+        }
+
+        String decoded = new String(Base64.getDecoder().decode(cloudId), UTF_8);
+        // once decoded the parts are separated by a $ character.
+        // they are respectively domain name and optional port, elasticsearch id, kibana id
+        String[] decodedParts = decoded.split("\\$");
+        if (decodedParts.length != 3) {
+            throw new IllegalStateException("cloudId " + cloudId + " did not decode to a cluster identifier correctly");
+        }
+
+        // domain name and optional port
+        String[] domainAndMaybePort = decodedParts[0].split(":", 2);
+        String domain = domainAndMaybePort[0];
+        int port;
+
+        if (domainAndMaybePort.length == 2) {
+            try {
+                port = Integer.parseInt(domainAndMaybePort[1]);
+            } catch (NumberFormatException nfe) {
+                throw new IllegalStateException("cloudId " + cloudId + " does not contain a valid port number");
+            }
+        } else {
+            port = 443;
+        }
+
+        String url = decodedParts[1]  + "." + domain;
+        return builder(new HttpHost(url, port, "https"));
     }
 
     /**
@@ -139,7 +185,11 @@ public class RestClient implements Closeable {
      * @see Node#Node(HttpHost)
      */
     public static RestClientBuilder builder(HttpHost... hosts) {
-        return new RestClientBuilder(hostsToNodes(hosts));
+        if (hosts == null || hosts.length == 0) {
+            throw new IllegalArgumentException("hosts must not be null nor empty");
+        }
+        List<Node> nodes = Arrays.stream(hosts).map(Node::new).collect(Collectors.toList());
+        return new RestClientBuilder(nodes);
     }
 
     /**
@@ -163,23 +213,20 @@ public class RestClient implements Closeable {
         this.blacklist.clear();
     }
 
-    private static List<Node> hostsToNodes(HttpHost[] hosts) {
-        if (hosts == null || hosts.length == 0) {
-            throw new IllegalArgumentException("hosts must not be null nor empty");
-        }
-        List<Node> nodes = new ArrayList<>(hosts.length);
-        for (HttpHost host : hosts) {
-            nodes.add(new Node(host));
-        }
-        return nodes;
-    }
-
     /**
      * Get the list of nodes that the client knows about. The list is
      * unmodifiable.
      */
     public List<Node> getNodes() {
         return nodeTuple.nodes;
+    }
+
+    /**
+     * check client running status
+     * @return client running status
+     */
+    public boolean isRunning() {
+        return client.isRunning();
     }
 
     /**
@@ -249,6 +296,18 @@ public class RestClient implements Closeable {
     private ResponseOrResponseException convertResponse(InternalRequest request, Node node, HttpResponse httpResponse) throws IOException {
         RequestLogger.logResponse(logger, request.httpRequest, node.getHost(), httpResponse);
         int statusCode = httpResponse.getStatusLine().getStatusCode();
+
+        HttpEntity entity = httpResponse.getEntity();
+        if (entity != null) {
+            Header header = entity.getContentEncoding();
+            if (header != null && "gzip".equals(header.getValue())) {
+                // Decompress and cleanup response headers
+                httpResponse.setEntity(new GzipDecompressingEntity(entity));
+                httpResponse.removeHeaders(HTTP.CONTENT_ENCODING);
+                httpResponse.removeHeaders(HTTP.CONTENT_LEN);
+            }
+        }
+
         Response response = new Response(request.httpRequest.getRequestLine(), node.getHost(), httpResponse);
         if (isSuccessfulResponse(statusCode) || request.ignoreErrorCodes.contains(response.getStatusLine().getStatusCode())) {
             onResponse(node);
@@ -284,60 +343,64 @@ public class RestClient implements Closeable {
      * @param responseListener the {@link ResponseListener} to notify when the
      *      request is completed or fails
      */
-    public void performRequestAsync(Request request, ResponseListener responseListener) {
+    public Cancellable performRequestAsync(Request request, ResponseListener responseListener) {
         try {
             FailureTrackingResponseListener failureTrackingResponseListener = new FailureTrackingResponseListener(responseListener);
             InternalRequest internalRequest = new InternalRequest(request);
             performRequestAsync(nextNodes(), internalRequest, failureTrackingResponseListener);
+            return internalRequest.cancellable;
         } catch (Exception e) {
             responseListener.onFailure(e);
+            return Cancellable.NO_OP;
         }
     }
 
     private void performRequestAsync(final NodeTuple<Iterator<Node>> nodeTuple,
                                      final InternalRequest request,
                                      final FailureTrackingResponseListener listener) {
-        final RequestContext context = request.createContextForNextAttempt(nodeTuple.nodes.next(), nodeTuple.authCache);
-        client.execute(context.requestProducer, context.asyncResponseConsumer, context.context, new FutureCallback<HttpResponse>() {
-            @Override
-            public void completed(HttpResponse httpResponse) {
-                try {
-                    ResponseOrResponseException responseOrResponseException = convertResponse(request, context.node, httpResponse);
-                    if (responseOrResponseException.responseException == null) {
-                        listener.onSuccess(responseOrResponseException.response);
-                    } else {
+        request.cancellable.runIfNotCancelled(() -> {
+            final RequestContext context = request.createContextForNextAttempt(nodeTuple.nodes.next(), nodeTuple.authCache);
+            client.execute(context.requestProducer, context.asyncResponseConsumer, context.context, new FutureCallback<HttpResponse>() {
+                @Override
+                public void completed(HttpResponse httpResponse) {
+                    try {
+                        ResponseOrResponseException responseOrResponseException = convertResponse(request, context.node, httpResponse);
+                        if (responseOrResponseException.responseException == null) {
+                            listener.onSuccess(responseOrResponseException.response);
+                        } else {
+                            if (nodeTuple.nodes.hasNext()) {
+                                listener.trackFailure(responseOrResponseException.responseException);
+                                performRequestAsync(nodeTuple, request, listener);
+                            } else {
+                                listener.onDefinitiveFailure(responseOrResponseException.responseException);
+                            }
+                        }
+                    } catch(Exception e) {
+                        listener.onDefinitiveFailure(e);
+                    }
+                }
+
+                @Override
+                public void failed(Exception failure) {
+                    try {
+                        RequestLogger.logFailedRequest(logger, request.httpRequest, context.node, failure);
+                        onFailure(context.node);
                         if (nodeTuple.nodes.hasNext()) {
-                            listener.trackFailure(responseOrResponseException.responseException);
+                            listener.trackFailure(failure);
                             performRequestAsync(nodeTuple, request, listener);
                         } else {
-                            listener.onDefinitiveFailure(responseOrResponseException.responseException);
+                            listener.onDefinitiveFailure(failure);
                         }
+                    } catch(Exception e) {
+                        listener.onDefinitiveFailure(e);
                     }
-                } catch(Exception e) {
-                    listener.onDefinitiveFailure(e);
                 }
-            }
 
-            @Override
-            public void failed(Exception failure) {
-                try {
-                    RequestLogger.logFailedRequest(logger, request.httpRequest, context.node, failure);
-                    onFailure(context.node);
-                    if (nodeTuple.nodes.hasNext()) {
-                        listener.trackFailure(failure);
-                        performRequestAsync(nodeTuple, request, listener);
-                    } else {
-                        listener.onDefinitiveFailure(failure);
-                    }
-                } catch(Exception e) {
-                    listener.onDefinitiveFailure(e);
+                @Override
+                public void cancelled() {
+                    listener.onDefinitiveFailure(Cancellable.newCancellationException());
                 }
-            }
-
-            @Override
-            public void cancelled() {
-                listener.onDefinitiveFailure(new ExecutionException("request was cancelled", null));
-            }
+            });
         });
     }
 
@@ -369,15 +432,11 @@ public class RestClient implements Closeable {
         List<DeadNode> deadNodes = new ArrayList<>(blacklist.size());
         for (Node node : nodeTuple.nodes) {
             DeadHostState deadness = blacklist.get(node.getHost());
-            if (deadness == null) {
+            if (deadness == null || deadness.shallBeRetried()) {
                 livingNodes.add(node);
-                continue;
+            } else {
+                deadNodes.add(new DeadNode(node, deadness));
             }
-            if (deadness.shallBeRetried()) {
-                livingNodes.add(node);
-                continue;
-            }
-            deadNodes.add(new DeadNode(node, deadness));
         }
 
         if (false == livingNodes.isEmpty()) {
@@ -415,12 +474,7 @@ public class RestClient implements Closeable {
              * to compare many things. This saves us a sort on the unfiltered
              * list.
              */
-            nodeSelector.select(new Iterable<Node>() {
-                @Override
-                public Iterator<Node> iterator() {
-                    return new DeadNodeIteratorAdapter(selectedDeadNodes.iterator());
-                }
-            });
+            nodeSelector.select(() -> new DeadNodeIteratorAdapter(selectedDeadNodes.iterator()));
             if (false == selectedDeadNodes.isEmpty()) {
                 return singletonList(Collections.min(selectedDeadNodes).node);
             }
@@ -447,7 +501,7 @@ public class RestClient implements Closeable {
     private void onFailure(Node node) {
         while(true) {
             DeadHostState previousDeadHostState =
-                blacklist.putIfAbsent(node.getHost(), new DeadHostState(TimeSupplier.DEFAULT));
+                blacklist.putIfAbsent(node.getHost(), new DeadHostState(DeadHostState.DEFAULT_TIME_SUPPLIER));
             if (previousDeadHostState == null) {
                 if (logger.isDebugEnabled()) {
                     logger.debug("added [" + node + "] to blacklist");
@@ -490,34 +544,37 @@ public class RestClient implements Closeable {
         }
     }
 
-    private static HttpRequestBase createHttpRequest(String method, URI uri, HttpEntity entity) {
+    private static HttpRequestBase createHttpRequest(String method, URI uri, HttpEntity entity, boolean compressionEnabled) {
         switch(method.toUpperCase(Locale.ROOT)) {
             case HttpDeleteWithEntity.METHOD_NAME:
-                return addRequestBody(new HttpDeleteWithEntity(uri), entity);
+                return addRequestBody(new HttpDeleteWithEntity(uri), entity, compressionEnabled);
             case HttpGetWithEntity.METHOD_NAME:
-                return addRequestBody(new HttpGetWithEntity(uri), entity);
+                return addRequestBody(new HttpGetWithEntity(uri), entity, compressionEnabled);
             case HttpHead.METHOD_NAME:
-                return addRequestBody(new HttpHead(uri), entity);
+                return addRequestBody(new HttpHead(uri), entity, compressionEnabled);
             case HttpOptions.METHOD_NAME:
-                return addRequestBody(new HttpOptions(uri), entity);
+                return addRequestBody(new HttpOptions(uri), entity, compressionEnabled);
             case HttpPatch.METHOD_NAME:
-                return addRequestBody(new HttpPatch(uri), entity);
+                return addRequestBody(new HttpPatch(uri), entity, compressionEnabled);
             case HttpPost.METHOD_NAME:
                 HttpPost httpPost = new HttpPost(uri);
-                addRequestBody(httpPost, entity);
+                addRequestBody(httpPost, entity, compressionEnabled);
                 return httpPost;
             case HttpPut.METHOD_NAME:
-                return addRequestBody(new HttpPut(uri), entity);
+                return addRequestBody(new HttpPut(uri), entity, compressionEnabled);
             case HttpTrace.METHOD_NAME:
-                return addRequestBody(new HttpTrace(uri), entity);
+                return addRequestBody(new HttpTrace(uri), entity, compressionEnabled);
             default:
                 throw new UnsupportedOperationException("http method not supported: " + method);
         }
     }
 
-    private static HttpRequestBase addRequestBody(HttpRequestBase httpRequest, HttpEntity entity) {
+    private static HttpRequestBase addRequestBody(HttpRequestBase httpRequest, HttpEntity entity, boolean compressionEnabled) {
         if (entity != null) {
             if (httpRequest instanceof HttpEntityEnclosingRequestBase) {
+                if (compressionEnabled) {
+                    entity = new ContentCompressingEntity(entity);
+                }
                 ((HttpEntityEnclosingRequestBase)httpRequest).setEntity(entity);
             } else {
                 throw new UnsupportedOperationException(httpRequest.getMethod() + " with body is not supported");
@@ -667,20 +724,23 @@ public class RestClient implements Closeable {
 
     private class InternalRequest {
         private final Request request;
-        private final Map<String, String> params;
         private final Set<Integer> ignoreErrorCodes;
         private final HttpRequestBase httpRequest;
+        private final Cancellable cancellable;
         private final WarningsHandler warningsHandler;
 
         InternalRequest(Request request) {
             this.request = request;
-            this.params = new HashMap<>(request.getParameters());
+            Map<String, String> params = new HashMap<>(request.getParameters());
+            params.putAll(request.getOptions().getParameters());
             //ignore is a special parameter supported by the clients, shouldn't be sent to es
             String ignoreString = params.remove("ignore");
             this.ignoreErrorCodes = getIgnoreErrorCodes(ignoreString, request.getMethod());
             URI uri = buildUri(pathPrefix, request.getEndpoint(), params);
-            this.httpRequest = createHttpRequest(request.getMethod(), uri, request.getEntity());
+            this.httpRequest = createHttpRequest(request.getMethod(), uri, request.getEntity(), compressionEnabled);
+            this.cancellable = Cancellable.fromRequest(httpRequest);
             setHeaders(httpRequest, request.getOptions().getHeaders());
+            setRequestConfig(httpRequest, request.getOptions().getRequestConfig());
             this.warningsHandler = request.getOptions().getWarningsHandler() == null ?
                 RestClient.this.warningsHandler : request.getOptions().getWarningsHandler();
         }
@@ -696,6 +756,15 @@ public class RestClient implements Closeable {
                 if (requestNames.contains(defaultHeader.getName()) == false) {
                     httpRequest.addHeader(defaultHeader);
                 }
+            }
+            if (compressionEnabled) {
+                httpRequest.addHeader("Accept-Encoding", "gzip");
+            }
+        }
+
+        private void setRequestConfig(HttpRequestBase httpRequest, RequestConfig requestConfig) {
+            if (requestConfig != null) {
+                httpRequest.setConfig(requestConfig);
             }
         }
 
@@ -812,5 +881,37 @@ public class RestClient implements Closeable {
             return new RuntimeException(exception.getMessage(), exception);
         }
         return new RuntimeException("error while performing request", exception);
+    }
+
+    /**
+     * A gzip compressing entity that also implements {@code getContent()}.
+     */
+    public static class ContentCompressingEntity extends GzipCompressingEntity {
+
+        public ContentCompressingEntity(HttpEntity entity) {
+            super(entity);
+        }
+
+        @Override
+        public InputStream getContent() throws IOException {
+            ByteArrayInputOutputStream out = new ByteArrayInputOutputStream(1024);
+            try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
+                wrappedEntity.writeTo(gzipOut);
+            }
+            return out.asInput();
+        }
+    }
+
+    /**
+     * A ByteArrayOutputStream that can be turned into an input stream without copying the underlying buffer.
+     */
+    private static class ByteArrayInputOutputStream extends ByteArrayOutputStream {
+        ByteArrayInputOutputStream(int size) {
+            super(size);
+        }
+
+        public InputStream asInput() {
+            return new ByteArrayInputStream(this.buf, 0, this.count);
+        }
     }
 }

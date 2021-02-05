@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.security.authc;
@@ -22,7 +23,7 @@ import org.elasticsearch.index.reindex.DeleteByQueryRequest;
 import org.elasticsearch.index.reindex.ScrollableHitSource;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.threadpool.ThreadPool.Names;
-import org.elasticsearch.xpack.security.support.SecurityIndexManager;
+import org.elasticsearch.xpack.core.security.index.RestrictedIndicesNames;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -51,7 +52,7 @@ public final class ExpiredApiKeysRemover extends AbstractRunnable {
 
     @Override
     public void doRun() {
-        DeleteByQueryRequest expiredDbq = new DeleteByQueryRequest(SecurityIndexManager.SECURITY_INDEX_NAME);
+        DeleteByQueryRequest expiredDbq = new DeleteByQueryRequest(RestrictedIndicesNames.SECURITY_MAIN_ALIAS);
         if (timeout != TimeValue.MINUS_ONE) {
             expiredDbq.setTimeout(timeout);
             expiredDbq.getSearchRequest().source().timeout(timeout);
@@ -83,8 +84,8 @@ public final class ExpiredApiKeysRemover extends AbstractRunnable {
             logger.debug("delete by query of api keys finished with [{}] deletions, [{}] bulk failures, [{}] search failures",
                     response.getDeleted(), response.getBulkFailures().size(), response.getSearchFailures().size());
             for (BulkItemResponse.Failure failure : response.getBulkFailures()) {
-                logger.debug(new ParameterizedMessage("deletion failed for index [{}], type [{}], id [{}]",
-                        failure.getIndex(), failure.getType(), failure.getId()), failure.getCause());
+                logger.debug(new ParameterizedMessage("deletion failed for index [{}], id [{}]",
+                        failure.getIndex(), failure.getId()), failure.getCause());
             }
             for (ScrollableHitSource.SearchFailure failure : response.getSearchFailures()) {
                 logger.debug(new ParameterizedMessage("search failed for index [{}], shard [{}] on node [{}]",

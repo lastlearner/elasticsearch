@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.painless;
@@ -46,12 +35,12 @@ public class FunctionRefTests extends ScriptTestCase {
 
     public void testQualifiedStaticMethodReference() {
         assertEquals(true,
-                exec("List l = [true]; l.stream().map(org.elasticsearch.painless.FeatureTest::overloadedStatic).findFirst().get()"));
+                exec("List l = [true]; l.stream().map(org.elasticsearch.painless.FeatureTestObject::overloadedStatic).findFirst().get()"));
     }
 
     public void testQualifiedStaticMethodReferenceDef() {
         assertEquals(true,
-                exec("def l = [true]; l.stream().map(org.elasticsearch.painless.FeatureTest::overloadedStatic).findFirst().get()"));
+                exec("def l = [true]; l.stream().map(org.elasticsearch.painless.FeatureTestObject::overloadedStatic).findFirst().get()"));
     }
 
     public void testQualifiedVirtualMethodReference() {
@@ -133,7 +122,7 @@ public class FunctionRefTests extends ScriptTestCase {
         assertEquals("testingcdefg", exec(
                 "String x = 'testing';" +
                 "String y = 'abcdefg';" +
-                "org.elasticsearch.painless.FeatureTest test = new org.elasticsearch.painless.FeatureTest(2,3);" +
+                "org.elasticsearch.painless.FeatureTestObject test = new org.elasticsearch.painless.FeatureTestObject(2,3);" +
                 "return test.twoFunctionsOfX(x::concat, y::substring);"));
     }
 
@@ -141,7 +130,7 @@ public class FunctionRefTests extends ScriptTestCase {
         assertEquals("testingcdefg", exec(
                 "def x = 'testing';" +
                 "def y = 'abcdefg';" +
-                "org.elasticsearch.painless.FeatureTest test = new org.elasticsearch.painless.FeatureTest(2,3);" +
+                "org.elasticsearch.painless.FeatureTestObject test = new org.elasticsearch.painless.FeatureTestObject(2,3);" +
                 "return test.twoFunctionsOfX(x::concat, y::substring);"));
     }
 
@@ -149,7 +138,7 @@ public class FunctionRefTests extends ScriptTestCase {
         assertEquals("testingcdefg", exec(
                 "String x = 'testing';" +
                 "String y = 'abcdefg';" +
-                "def test = new org.elasticsearch.painless.FeatureTest(2,3);" +
+                "def test = new org.elasticsearch.painless.FeatureTestObject(2,3);" +
                 "return test.twoFunctionsOfX(x::concat, y::substring);"));
     }
 
@@ -157,7 +146,7 @@ public class FunctionRefTests extends ScriptTestCase {
         assertEquals("testingcdefg", exec(
                 "def x = 'testing';" +
                 "def y = 'abcdefg';" +
-                "def test = new org.elasticsearch.painless.FeatureTest(2,3);" +
+                "def test = new org.elasticsearch.painless.FeatureTestObject(2,3);" +
                 "return test.twoFunctionsOfX(x::concat, y::substring);"));
     }
 
@@ -205,16 +194,14 @@ public class FunctionRefTests extends ScriptTestCase {
         Exception e = expectScriptThrows(IllegalArgumentException.class, () -> {
             exec("List l = [2, 1]; l.sort(Bogus::bogus); return l.get(0);", false);
         });
-        assertThat(e.getMessage(), endsWith("Variable [Bogus] is not defined."));
+        assertThat(e.getMessage(), endsWith("variable [Bogus] is not defined"));
     }
 
     public void testQualifiedClassMissing() {
         Exception e = expectScriptThrows(IllegalArgumentException.class, () -> {
             exec("List l = [2, 1]; l.sort(org.joda.time.BogusDateTime::bogus); return l.get(0);", false);
         });
-        /* Because the type isn't known and we use the lexer hack this fails to parse. I find this error message confusing but it is the one
-         * we have... */
-        assertEquals("invalid sequence of tokens near ['::'].", e.getMessage());
+        assertEquals("variable [org.joda.time.BogusDateTime] is not defined", e.getMessage());
     }
 
     public void testNotFunctionalInterface() {

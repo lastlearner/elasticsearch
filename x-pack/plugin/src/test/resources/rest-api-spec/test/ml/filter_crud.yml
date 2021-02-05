@@ -1,20 +1,8 @@
 ---
 setup:
   - skip:
-      features: headers
-  - do:
-      headers:
-        Authorization: "Basic eF9wYWNrX3Jlc3RfdXNlcjp4LXBhY2stdGVzdC1wYXNzd29yZA==" # run as x_pack_rest_user, i.e. the test setup superuser
-        Content-Type: application/json
-      index:
-        index: .ml-meta
-        id: filter_imposter-filter
-        body: >
-          {
-            "filter_id": "imposter",
-            "items": ["a", "b"],
-            "type": "imposter"
-          }
+      features:
+        - headers
 
   - do:
       headers:
@@ -36,11 +24,6 @@ setup:
             "description": "This filter has a description",
             "items": ["123", "lmnop"]
           }
-
-  - do:
-      headers:
-        Authorization: "Basic eF9wYWNrX3Jlc3RfdXNlcjp4LXBhY2stdGVzdC1wYXNzd29yZA==" # run as x_pack_rest_user, i.e. the test setup superuser
-      indices.refresh: {}
 
 ---
 "Test get filter API with bad ID":
@@ -86,29 +69,48 @@ setup:
         from: 1
         size: 1
 
-  - match: { count:   1 }
+  - match: { count:   2 }
+
+  - match:
+      filters.0:
+        filter_id: "filter-foo2"
+        description: "This filter has a description"
+        items: ["123", "lmnop"]
 
 ---
-"Test invalid param combinations":
+"Test get filters API with expression ID":
 
   - do:
-      catch: bad_request
       ml.get_filters:
+        filter_id: "filter-foo,filter-foo2"
+
+  - match: { count:   2 }
+  - match:
+      filters.0:
         filter_id: "filter-foo"
-        from: 0
+        items: ["abc", "xyz"]
+
+  - match:
+      filters.1:
+        filter_id: "filter-foo2"
+        description: "This filter has a description"
+        items: ["123", "lmnop"]
 
   - do:
-      catch: bad_request
       ml.get_filters:
-        filter_id: "filter-foo"
-        size: 1
+        filter_id: "filter-foo*"
 
-  - do:
-      catch: bad_request
-      ml.get_filters:
+  - match: { count:   2 }
+  - match:
+      filters.0:
         filter_id: "filter-foo"
-        from: 0
-        size: 1
+        items: ["abc", "xyz"]
+
+  - match:
+      filters.1:
+        filter_id: "filter-foo2"
+        description: "This filter has a description"
+        items: ["123", "lmnop"]
 
 ---
 "Test create filter given invalid filter_id":
@@ -293,3 +295,4 @@ setup:
       ml.get_filters: {}
   - match: { count: 0 }
   - match: { filters: [] }
+

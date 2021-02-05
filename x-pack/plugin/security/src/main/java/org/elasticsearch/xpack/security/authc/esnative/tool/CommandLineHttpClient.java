@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.authc.esnative.tool;
 
@@ -27,7 +28,6 @@ import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
@@ -54,11 +54,9 @@ public class CommandLineHttpClient {
      */
     private static final int READ_TIMEOUT = 35 * 1000;
 
-    private final Settings settings;
     private final Environment env;
 
-    public CommandLineHttpClient(Settings settings, Environment env) {
-        this.settings = settings;
+    public CommandLineHttpClient(Environment env) {
         this.env = env;
     }
 
@@ -83,7 +81,7 @@ public class CommandLineHttpClient {
         final HttpURLConnection conn;
         // If using SSL, need a custom service because it's likely a self-signed certificate
         if ("https".equalsIgnoreCase(url.getProtocol())) {
-            final SSLService sslService = new SSLService(settings, env);
+            final SSLService sslService = new SSLService(env);
             final HttpsURLConnection httpsConn = (HttpsURLConnection) url.openConnection();
             AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
                 final SSLConfiguration sslConfiguration = sslService.getHttpTransportSSLConfiguration();
@@ -134,6 +132,7 @@ public class CommandLineHttpClient {
     }
 
     String getDefaultURL() {
+        final Settings settings = env.settings();
         final String scheme = XPackSettings.HTTP_SSL_ENABLED.get(settings) ? "https" : "http";
         List<String> httpPublishHost = SETTING_HTTP_PUBLISH_HOST.get(settings);
         if (httpPublishHost.isEmpty()) {
@@ -154,14 +153,13 @@ public class CommandLineHttpClient {
                 // this sucks but a port can be specified with a value of 0, we'll never be able to connect to it so just default to
                 // what we know
                 if (port <= 0) {
-                    throw new IllegalStateException("unable to determine http port from settings, please use the -u option to provide the" +
-                            " url");
+                    throw new IllegalStateException("unable to determine http port from settings");
                 }
             }
             return scheme + "://" + InetAddresses.toUriString(publishAddress) + ":" + port;
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to resolve default URL", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("unable to determine default URL from settings, please use the -u option to explicitly " +
+                "provide the url", e);
         }
     }
-
 }

@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.cluster.action.shard;
@@ -32,7 +21,7 @@ import org.elasticsearch.cluster.action.shard.ShardStateAction.StartedShardEntry
 import org.elasticsearch.cluster.coordination.FailedToCommitClusterStateException;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
-import org.elasticsearch.cluster.routing.RoutingService;
+import org.elasticsearch.cluster.routing.RerouteService;
 import org.elasticsearch.cluster.routing.RoutingTable;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.ShardsIterator;
@@ -42,9 +31,10 @@ import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.Writeable;
+import org.elasticsearch.index.shard.ShardLongFieldRange;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.index.shard.ShardLongFieldRangeWireTests;
 import org.elasticsearch.test.ESTestCase;
-import org.elasticsearch.test.VersionUtils;
 import org.elasticsearch.test.transport.CapturingTransport;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -76,6 +66,7 @@ import static org.elasticsearch.test.ClusterServiceUtils.setState;
 import static org.elasticsearch.test.VersionUtils.randomCompatibleVersion;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.sameInstance;
 import static org.hamcrest.Matchers.arrayWithSize;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
@@ -92,8 +83,8 @@ public class ShardStateActionTests extends ESTestCase {
 
     private static class TestShardStateAction extends ShardStateAction {
         TestShardStateAction(ClusterService clusterService, TransportService transportService,
-                             AllocationService allocationService, RoutingService routingService) {
-            super(clusterService, transportService, allocationService, routingService, THREAD_POOL);
+                             AllocationService allocationService, RerouteService rerouteService) {
+            super(clusterService, transportService, allocationService, rerouteService, THREAD_POOL);
         }
 
         private Runnable onBeforeWaitForNewMasterAndRetry;
@@ -315,7 +306,7 @@ public class ShardStateActionTests extends ESTestCase {
         ShardRouting failedShard = getRandomShardRouting(index);
 
         final TestListener listener = new TestListener();
-        long primaryTerm = clusterService.state().metaData().index(index).primaryTerm(failedShard.id());
+        long primaryTerm = clusterService.state().metadata().index(index).primaryTerm(failedShard.id());
         assertThat(primaryTerm, greaterThanOrEqualTo(1L));
         shardStateAction.remoteShardFailed(failedShard.shardId(), failedShard.allocationId().getId(),
             primaryTerm + 1, randomBoolean(), "test", getSimulatedFailure(), listener);
@@ -422,9 +413,9 @@ public class ShardStateActionTests extends ESTestCase {
         setState(clusterService, ClusterStateCreationUtils.stateWithActivePrimary(index, true, randomInt(5)));
 
         final ShardRouting shardRouting = getRandomShardRouting(index);
-        final long primaryTerm = clusterService.state().metaData().index(shardRouting.index()).primaryTerm(shardRouting.id());
+        final long primaryTerm = clusterService.state().metadata().index(shardRouting.index()).primaryTerm(shardRouting.id());
         final TestListener listener = new TestListener();
-        shardStateAction.shardStarted(shardRouting, primaryTerm, "testShardStarted", listener);
+        shardStateAction.shardStarted(shardRouting, primaryTerm, "testShardStarted", ShardLongFieldRange.UNKNOWN, listener);
 
         final CapturingTransport.CapturedRequest[] capturedRequests = transport.getCapturedRequestsAndClear();
         assertThat(capturedRequests[0].request, instanceOf(ShardStateAction.StartedShardEntry.class));
@@ -433,6 +424,7 @@ public class ShardStateActionTests extends ESTestCase {
         assertThat(entry.shardId, equalTo(shardRouting.shardId()));
         assertThat(entry.allocationId, equalTo(shardRouting.allocationId().getId()));
         assertThat(entry.primaryTerm, equalTo(primaryTerm));
+        assertThat(entry.timestampRange, sameInstance(ShardLongFieldRange.UNKNOWN));
 
         transport.handleResponse(capturedRequests[0].requestId, TransportResponse.Empty.INSTANCE);
         listener.await();
@@ -479,30 +471,6 @@ public class ShardStateActionTests extends ESTestCase {
         return new CorruptIndexException("simulated", (String) null);
     }
 
-    public void testShardEntryBWCSerialize() throws Exception {
-        final Version bwcVersion = randomValueOtherThanMany(
-            version -> version.onOrAfter(Version.V_6_3_0), () -> VersionUtils.randomVersion(random()));
-        final ShardId shardId = new ShardId(randomRealisticUnicodeOfLengthBetween(10, 100), UUID.randomUUID().toString(), between(0, 1000));
-        final String allocationId = randomRealisticUnicodeOfCodepointLengthBetween(10, 100);
-        final String reason = randomRealisticUnicodeOfCodepointLengthBetween(10, 100);
-        try (StreamInput in = serialize(new StartedShardEntry(shardId, allocationId, 0L, reason), bwcVersion).streamInput()) {
-            in.setVersion(bwcVersion);
-            final FailedShardEntry failedShardEntry = new FailedShardEntry(in);
-            assertThat(failedShardEntry.shardId, equalTo(shardId));
-            assertThat(failedShardEntry.allocationId, equalTo(allocationId));
-            assertThat(failedShardEntry.message, equalTo(reason));
-            assertThat(failedShardEntry.failure, nullValue());
-            assertThat(failedShardEntry.markAsStale, equalTo(true));
-        }
-        try (StreamInput in = serialize(new FailedShardEntry(shardId, allocationId, 0L, reason, null, false), bwcVersion).streamInput()) {
-            in.setVersion(bwcVersion);
-            final StartedShardEntry startedShardEntry = new StartedShardEntry(in);
-            assertThat(startedShardEntry.shardId, equalTo(shardId));
-            assertThat(startedShardEntry.allocationId, equalTo(allocationId));
-            assertThat(startedShardEntry.message, equalTo(reason));
-        }
-    }
-
     public void testFailedShardEntrySerialization() throws Exception {
         final ShardId shardId = new ShardId(randomRealisticUnicodeOfLengthBetween(10, 100), UUID.randomUUID().toString(), between(0, 1000));
         final String allocationId = randomRealisticUnicodeOfCodepointLengthBetween(10, 100);
@@ -539,17 +507,21 @@ public class ShardStateActionTests extends ESTestCase {
         final String message = randomRealisticUnicodeOfCodepointLengthBetween(10, 100);
 
         final Version version = randomFrom(randomCompatibleVersion(random(), Version.CURRENT));
-        try (StreamInput in = serialize(new StartedShardEntry(shardId, allocationId, primaryTerm, message), version).streamInput()) {
+        final ShardLongFieldRange timestampRange = ShardLongFieldRangeWireTests.randomRange();
+        final StartedShardEntry startedShardEntry = new StartedShardEntry(
+                shardId,
+                allocationId,
+                primaryTerm,
+                message,
+                timestampRange);
+        try (StreamInput in = serialize(startedShardEntry, version).streamInput()) {
             in.setVersion(version);
             final StartedShardEntry deserialized = new StartedShardEntry(in);
             assertThat(deserialized.shardId, equalTo(shardId));
             assertThat(deserialized.allocationId, equalTo(allocationId));
-            if (version.onOrAfter(Version.V_6_7_0)) {
-                assertThat(deserialized.primaryTerm, equalTo(primaryTerm));
-            } else {
-                assertThat(deserialized.primaryTerm, equalTo(0L));
-            }
+            assertThat(deserialized.primaryTerm, equalTo(primaryTerm));
             assertThat(deserialized.message, equalTo(message));
+            assertThat(deserialized.timestampRange, equalTo(timestampRange));
         }
     }
 

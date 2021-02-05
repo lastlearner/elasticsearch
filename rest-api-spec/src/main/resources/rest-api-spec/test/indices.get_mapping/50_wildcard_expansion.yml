@@ -1,5 +1,8 @@
 ---
 setup:
+  - skip:
+      features: ["allowed_warnings"]
+
   - do:
         indices.create:
           index: test-xxx
@@ -52,6 +55,8 @@ setup:
   - do:
       indices.close:
         index: test-xyy
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
 
   - do:
         cluster.health:
@@ -102,9 +107,6 @@ setup:
 
 ---
 "Get test-* with wildcard_expansion=none":
- - skip:
-    version: " - 6.99.99"
-    reason: allow_no_indices (defaults to true) was ignored in previous versions
  - do:
     indices.get_mapping:
         index: test-x*
@@ -113,9 +115,6 @@ setup:
  - match: { '':  {} }
 ---
 "Get test-* with wildcard_expansion=none allow_no_indices=false":
- - skip:
-    version: " - 6.99.99"
-    reason: allow_no_indices was ignored in previous versions
  - do:
     catch: missing
     indices.get_mapping:

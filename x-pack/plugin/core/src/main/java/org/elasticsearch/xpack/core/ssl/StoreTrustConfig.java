@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.ssl;
 
@@ -13,8 +14,12 @@ import org.elasticsearch.xpack.core.ssl.cert.CertificateInfo;
 
 import javax.net.ssl.X509ExtendedTrustManager;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.security.AccessControlException;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
@@ -30,6 +35,8 @@ import java.util.Objects;
  * Trust configuration that is backed by a {@link java.security.KeyStore}
  */
 class StoreTrustConfig extends TrustConfig {
+
+    private static final String TRUSTSTORE_FILE = "truststore";
 
     final String trustStorePath;
     final String trustStoreType;
@@ -54,11 +61,18 @@ class StoreTrustConfig extends TrustConfig {
 
     @Override
     X509ExtendedTrustManager createTrustManager(@Nullable Environment environment) {
+        final Path storePath = CertParsingUtils.resolvePath(trustStorePath, environment);
         try {
-            KeyStore trustStore = getStore(environment, trustStorePath, trustStoreType, trustStorePassword);
+            KeyStore trustStore = getStore(storePath, trustStoreType, trustStorePassword);
             return CertParsingUtils.trustManager(trustStore, trustStoreAlgorithm);
+        } catch (FileNotFoundException | NoSuchFileException e) {
+            throw missingTrustConfigFile(e, TRUSTSTORE_FILE, storePath);
+        } catch (AccessDeniedException  e) {
+            throw unreadableTrustConfigFile(e, TRUSTSTORE_FILE, storePath);
+        } catch (AccessControlException e) {
+            throw blockedTrustConfigFile(e, environment, TRUSTSTORE_FILE, List.of(storePath));
         } catch (Exception e) {
-            throw new ElasticsearchException("failed to initialize a TrustManagerFactory", e);
+            throw new ElasticsearchException("failed to initialize SSL TrustManager", e);
         }
     }
 

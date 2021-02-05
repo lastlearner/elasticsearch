@@ -1,26 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.search.aggregations;
 
 import org.apache.lucene.search.LeafCollector;
 import org.apache.lucene.search.Scorable;
+import org.elasticsearch.search.aggregations.bucket.terms.LongKeyedBucketOrds;
 
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -73,9 +63,33 @@ public abstract class LeafBucketCollector implements LeafCollector {
     }
 
     /**
-     * Collect the given doc in the given bucket.
+     * Collect the given {@code doc} in the bucket owned by
+     * {@code owningBucketOrd}.
+     * <p>
+     * The implementation of this method metric aggregations is generally
+     * something along the lines of
+     * <pre>{@code
+     * array[owningBucketOrd] += loadValueFromDoc(doc)
+     * }</pre>
+     * <p>Bucket aggregations have more trouble because their job is to
+     * <strong>make</strong> new ordinals. So their implementation generally
+     * looks kind of like
+     * <pre>{@code
+     * long myBucketOrd = mapOwningBucketAndValueToMyOrd(owningBucketOrd, loadValueFromDoc(doc));
+     * collectBucket(doc, myBucketOrd);
+     * }</pre>
+     * <p>
+     * Some bucket aggregations "know" how many ordinals each owning ordinal
+     * needs so they can map "densely". The {@code range} aggregation, for
+     * example, can perform this mapping with something like:
+     * <pre>{@code
+     * return rangeCount * owningBucketOrd + matchingRange(value);
+     * }</pre>
+     * Other aggregations don't know how many buckets will fall into any
+     * particular owning bucket. The {@code terms} aggregation, for example,
+     * uses {@link LongKeyedBucketOrds} which amounts to a hash lookup.
      */
-    public abstract void collect(int doc, long bucket) throws IOException;
+    public abstract void collect(int doc, long owningBucketOrd) throws IOException;
 
     @Override
     public final void collect(int doc) throws IOException {

@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.discovery;
 
@@ -37,18 +26,15 @@ public class SettingsBasedSeedHostsProviderTests extends ESTestCase {
 
     private class AssertingHostsResolver implements HostsResolver {
         private final Set<String> expectedHosts;
-        private final int expectedPortCount;
 
         private boolean resolvedHosts;
 
-        AssertingHostsResolver(int expectedPortCount, String... expectedHosts) {
-            this.expectedPortCount = expectedPortCount;
+        AssertingHostsResolver(String... expectedHosts) {
             this.expectedHosts = Sets.newHashSet(expectedHosts);
         }
 
         @Override
-        public List<TransportAddress> resolveHosts(List<String> hosts, int limitPortCounts) {
-            assertEquals(expectedPortCount, limitPortCounts);
+        public List<TransportAddress> resolveHosts(List<String> hosts) {
             assertEquals(expectedHosts, Sets.newHashSet(hosts));
             resolvedHosts = true;
             return emptyList();
@@ -60,15 +46,19 @@ public class SettingsBasedSeedHostsProviderTests extends ESTestCase {
     }
 
     public void testScansPortsByDefault() {
-        final AssertingHostsResolver hostsResolver = new AssertingHostsResolver(5, "::1", "127.0.0.1");
+        final AssertingHostsResolver hostsResolver = new AssertingHostsResolver(
+            "[::1]:9300", "[::1]:9301", "127.0.0.1:9300", "127.0.0.1:9301"
+        );
         final TransportService transportService = mock(TransportService.class);
-        when(transportService.getLocalAddresses()).thenReturn(Arrays.asList("::1", "127.0.0.1"));
+        when(transportService.getDefaultSeedAddresses()).thenReturn(
+            Arrays.asList("[::1]:9300", "[::1]:9301", "127.0.0.1:9300", "127.0.0.1:9301")
+        );
         new SettingsBasedSeedHostsProvider(Settings.EMPTY, transportService).getSeedAddresses(hostsResolver);
         assertTrue(hostsResolver.getResolvedHosts());
     }
 
     public void testGetsHostsFromSetting() {
-        final AssertingHostsResolver hostsResolver = new AssertingHostsResolver(1, "bar", "foo");
+        final AssertingHostsResolver hostsResolver = new AssertingHostsResolver("bar", "foo");
         new SettingsBasedSeedHostsProvider(Settings.builder()
             .putList(SettingsBasedSeedHostsProvider.DISCOVERY_SEED_HOSTS_SETTING.getKey(), "foo", "bar")
             .build(), null).getSeedAddresses(hostsResolver);

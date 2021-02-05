@@ -1,30 +1,21 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.io.stream;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.CheckedBiConsumer;
+import org.elasticsearch.common.CheckedConsumer;
 import org.elasticsearch.common.CheckedFunction;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.collect.Tuple;
+import org.elasticsearch.common.settings.SecureString;
 import org.elasticsearch.test.ESTestCase;
 
 import java.io.ByteArrayInputStream;
@@ -37,6 +28,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,7 +41,9 @@ import java.util.stream.IntStream;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasToString;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.iterableWithSize;
+import static org.hamcrest.Matchers.nullValue;
 
 public class StreamTests extends ESTestCase {
 
@@ -403,6 +397,91 @@ public class StreamTests extends ESTestCase {
         public void writeTo(StreamOutput out) throws IOException {
             out.writeString(string);
         }
+    }
+
+    public void testSecureStringSerialization() throws IOException {
+        try (BytesStreamOutput output = new BytesStreamOutput()) {
+            final SecureString secureString = new SecureString("super secret".toCharArray());
+            output.writeSecureString(secureString);
+
+            final BytesReference bytesReference = output.bytes();
+            final StreamInput input = bytesReference.streamInput();
+
+            assertThat(secureString, is(equalTo(input.readSecureString())));
+        }
+
+        try (BytesStreamOutput output = new BytesStreamOutput()) {
+            final SecureString secureString = randomBoolean() ? null : new SecureString("super secret".toCharArray());
+            output.writeOptionalSecureString(secureString);
+
+            final BytesReference bytesReference = output.bytes();
+            final StreamInput input = bytesReference.streamInput();
+
+            if (secureString != null) {
+                assertThat(input.readOptionalSecureString(), is(equalTo(secureString)));
+            } else {
+                assertThat(input.readOptionalSecureString(), is(nullValue()));
+            }
+        }
+    }
+
+    public void testGenericSet() throws IOException {
+        Set<String> set = Set.of("a", "b", "c", "d", "e");
+        assertGenericRoundtrip(set);
+        // reverse order in normal set so linked hashset does not match the order
+        var list = new ArrayList<>(set);
+        Collections.reverse(list);
+        assertGenericRoundtrip(new LinkedHashSet<>(list));
+    }
+
+    private static class Unwriteable {}
+
+    private void assertNotWriteable(Object o, Class<?> type) {
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> StreamOutput.checkWriteable(o));
+        assertThat(e.getMessage(), equalTo("Cannot write type [" + type.getCanonicalName() + "] to stream"));
+    }
+
+    public void testIsWriteable() throws IOException {
+        assertNotWriteable(new Unwriteable(), Unwriteable.class);
+    }
+
+    public void testSetIsWriteable() throws IOException {
+        StreamOutput.checkWriteable(Set.of("a", "b"));
+        assertNotWriteable(Set.of(new Unwriteable()), Unwriteable.class);
+    }
+
+    public void testListIsWriteable() throws IOException {
+        StreamOutput.checkWriteable(List.of("a", "b"));
+        assertNotWriteable(List.of(new Unwriteable()), Unwriteable.class);
+    }
+
+    public void testMapIsWriteable() throws IOException {
+        StreamOutput.checkWriteable(Map.of("a", "b", "c", "d"));
+        assertNotWriteable(Map.of("a", new Unwriteable()), Unwriteable.class);
+    }
+
+    public void testObjectArrayIsWriteable() throws IOException {
+        StreamOutput.checkWriteable(new Object[] {"a", "b"});
+        assertNotWriteable(new Object[] {new Unwriteable()}, Unwriteable.class);
+    }
+
+    private void assertSerialization(CheckedConsumer<StreamOutput, IOException> outputAssertions,
+                                     CheckedConsumer<StreamInput, IOException> inputAssertions) throws IOException {
+        try (BytesStreamOutput output = new BytesStreamOutput()) {
+            outputAssertions.accept(output);
+            final BytesReference bytesReference = output.bytes();
+            final StreamInput input = bytesReference.streamInput();
+            inputAssertions.accept(input);
+        }
+    }
+
+    private void assertGenericRoundtrip(Object original) throws IOException {
+        assertSerialization(output -> {
+            output.writeGenericValue(original);
+        }, input -> {
+            Object read = input.readGenericValue();
+            assertThat(read, equalTo(original));
+        });
     }
 
 }

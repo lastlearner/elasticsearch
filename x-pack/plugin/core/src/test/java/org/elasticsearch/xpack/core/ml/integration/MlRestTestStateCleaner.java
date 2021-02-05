@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.ml.integration;
 
@@ -29,6 +30,7 @@ public class MlRestTestStateCleaner {
     public void clearMlMetadata() throws IOException {
         deleteAllDatafeeds();
         deleteAllJobs();
+        deleteAllDataFrameAnalytics();
         // indices will be deleted by the ESRestTestCase class
     }
 
@@ -89,6 +91,38 @@ public class MlRestTestStateCleaner {
         for (Map<String, Object> jobConfig : jobConfigs) {
             String jobId = (String) jobConfig.get("job_id");
             adminClient.performRequest(new Request("DELETE", "/_ml/anomaly_detectors/" + jobId));
+        }
+    }
+
+    private void deleteAllDataFrameAnalytics() throws IOException {
+        stopAllDataFrameAnalytics();
+
+        final Request analyticsRequest = new Request("GET", "/_ml/data_frame/analytics?size=10000");
+        analyticsRequest.addParameter("filter_path", "data_frame_analytics");
+        final Response analyticsResponse = adminClient.performRequest(analyticsRequest);
+        List<Map<String, Object>> analytics = (List<Map<String, Object>>) XContentMapValues.extractValue(
+            "data_frame_analytics", ESRestTestCase.entityAsMap(analyticsResponse));
+        if (analytics == null) {
+            return;
+        }
+
+        for (Map<String, Object> config : analytics) {
+            String id = (String) config.get("id");
+            adminClient.performRequest(new Request("DELETE", "/_ml/data_frame/analytics/" + id));
+        }
+    }
+
+    private void stopAllDataFrameAnalytics() {
+        try {
+            adminClient.performRequest(new Request("POST", "_ml/data_frame/analytics/*/_stop"));
+        } catch (Exception e1) {
+            logger.warn("failed to stop all data frame analytics. Will proceed to force-stopping", e1);
+            try {
+                adminClient.performRequest(new Request("POST", "_ml/data_frame/analytics/*/_stop?force=true"));
+            } catch (Exception e2) {
+                logger.warn("Force-stopping all data frame analytics failed", e2);
+            }
+            throw new RuntimeException("Had to resort to force-stopping data frame analytics, something went wrong?", e1);
         }
     }
 }

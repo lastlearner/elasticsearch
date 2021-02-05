@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.ssl;
 
@@ -17,6 +18,7 @@ import javax.net.ssl.X509ExtendedKeyManager;
 
 import java.security.PrivateKey;
 
+import static org.elasticsearch.test.TestMatchers.throwableWithMessage;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
@@ -46,7 +48,7 @@ public class StoreKeyConfigTests extends ESTestCase {
             KeyManagerFactory.getDefaultAlgorithm(), TrustManagerFactory.getDefaultAlgorithm());
         ElasticsearchException ee = expectThrows(ElasticsearchException.class, () ->
             keyConfigPkcs11.createKeyManager(TestEnvironment.newEnvironment(settings)));
-        assertThat(ee.getMessage(), containsString("failed to initialize a KeyManagerFactory"));
+        assertThat(ee, throwableWithMessage(containsString("failed to initialize SSL KeyManager")));
         assertThat(ee.getCause().getMessage(), containsString("PKCS11 not found"));
     }
 

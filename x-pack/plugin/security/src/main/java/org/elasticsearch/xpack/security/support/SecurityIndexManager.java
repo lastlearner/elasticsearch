@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.support;
 
@@ -19,40 +20,27 @@ import org.elasticsearch.action.UnavailableShardsException;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
-import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
-import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateRequest;
 import org.elasticsearch.action.support.ActiveShardCount;
-import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.cluster.ClusterChangedEvent;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateListener;
 import org.elasticsearch.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.cluster.health.ClusterIndexHealth;
-import org.elasticsearch.cluster.metadata.AliasOrIndex;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
-import org.elasticsearch.cluster.metadata.MappingMetaData;
-import org.elasticsearch.cluster.metadata.MetaData;
+import org.elasticsearch.cluster.metadata.IndexAbstraction;
+import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.cluster.metadata.MappingMetadata;
+import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
 import org.elasticsearch.cluster.service.ClusterService;
-import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.collect.Tuple;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.xcontent.DeprecationHandler;
-import org.elasticsearch.common.xcontent.NamedXContentRegistry;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.common.xcontent.XContentType;
-import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.gateway.GatewayService;
+import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexNotFoundException;
-import org.elasticsearch.index.mapper.MapperService;
+import org.elasticsearch.indices.IndexClosedException;
+import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.rest.RestStatus;
-import org.elasticsearch.xpack.core.security.index.RestrictedIndicesNames;
-import org.elasticsearch.xpack.core.template.TemplateUtils;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -61,59 +49,61 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.cluster.metadata.IndexMetaData.INDEX_FORMAT_SETTING;
-import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureExpectedToken;
-import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureFieldName;
-import static org.elasticsearch.xpack.core.ClientHelper.SECURITY_ORIGIN;
+import static org.elasticsearch.cluster.metadata.IndexMetadata.INDEX_FORMAT_SETTING;
 import static org.elasticsearch.xpack.core.ClientHelper.executeAsyncWithOrigin;
 
 /**
- * Manages the lifecycle of a single index, its template, mapping and and data upgrades/migrations.
+ * Manages the lifecycle, mapping and data upgrades/migrations of the {@code RestrictedIndicesNames#SECURITY_MAIN_ALIAS}
+ * and {@code RestrictedIndicesNames#SECURITY_MAIN_ALIAS} alias-index pair.
  */
 public class SecurityIndexManager implements ClusterStateListener {
 
-    public static final String INTERNAL_SECURITY_INDEX = RestrictedIndicesNames.INTERNAL_SECURITY_INDEX_7;
-    public static final int INTERNAL_INDEX_FORMAT = 6;
+    public static final int INTERNAL_MAIN_INDEX_FORMAT = 6;
+    public static final int INTERNAL_TOKENS_INDEX_FORMAT = 7;
     public static final String SECURITY_VERSION_STRING = "security-version";
-    public static final String TEMPLATE_VERSION_PATTERN = Pattern.quote("${security.template.version}");
-    public static final String SECURITY_TEMPLATE_NAME = "security-index-template";
-    public static final String SECURITY_INDEX_NAME = ".security";
-    private static final Logger LOGGER = LogManager.getLogger(SecurityIndexManager.class);
+    public static final String TEMPLATE_VERSION_VARIABLE = "security.template.version";
 
-    private final String indexName;
+    private static final Logger logger = LogManager.getLogger(SecurityIndexManager.class);
+
     private final Client client;
+    private final SystemIndexDescriptor systemIndexDescriptor;
 
     private final List<BiConsumer<State, State>> stateChangeListeners = new CopyOnWriteArrayList<>();
 
     private volatile State indexState;
 
-    public SecurityIndexManager(Client client, String indexName, ClusterService clusterService) {
-        this(client, indexName, State.UNRECOVERED_STATE);
-        clusterService.addListener(this);
+    public static SecurityIndexManager buildSecurityIndexManager(
+        Client client,
+        ClusterService clusterService,
+        SystemIndexDescriptor descriptor
+    ) {
+        final SecurityIndexManager securityIndexManager = new SecurityIndexManager(client, descriptor, State.UNRECOVERED_STATE);
+        clusterService.addListener(securityIndexManager);
+        return securityIndexManager;
     }
 
-    private SecurityIndexManager(Client client, String indexName, State indexState) {
+    private SecurityIndexManager(Client client, SystemIndexDescriptor descriptor, State indexState) {
         this.client = client;
-        this.indexName = indexName;
         this.indexState = indexState;
+        this.systemIndexDescriptor = descriptor;
     }
 
     public SecurityIndexManager freeze() {
-        return new SecurityIndexManager(null, indexName, indexState);
+        return new SecurityIndexManager(null, systemIndexDescriptor, indexState);
     }
 
-    public boolean checkMappingVersion(Predicate<Version> requiredVersion) {
-        // pull value into local variable for consistent view
-        final State currentIndexState = this.indexState;
-        return currentIndexState.mappingVersion == null || requiredVersion.test(currentIndexState.mappingVersion);
+    public String aliasName() {
+        return systemIndexDescriptor.getAliasName();
     }
 
     public boolean indexExists() {
-        return this.indexState.indexExists;
+        return this.indexState.indexExists();
+    }
+
+    public Instant getCreationTime() {
+        return this.indexState.creationTime;
     }
 
     /**
@@ -128,10 +118,6 @@ public class SecurityIndexManager implements ClusterStateListener {
         return this.indexState.indexAvailable;
     }
 
-    public boolean isMappingUpToDate() {
-        return this.indexState.mappingUpToDate;
-    }
-
     public boolean isStateRecovered() {
         return this.indexState != State.UNRECOVERED_STATE;
     }
@@ -142,10 +128,13 @@ public class SecurityIndexManager implements ClusterStateListener {
             throw new IllegalStateException("caller must make sure to use a frozen state and check indexAvailable");
         }
 
-        if (localState.indexExists) {
-            return new UnavailableShardsException(null, "at least one primary shard for the security index is unavailable");
+        if (localState.indexState == IndexMetadata.State.CLOSE) {
+            return new IndexClosedException(new Index(localState.concreteIndexName, ClusterState.UNKNOWN_UUID));
+        } else if (localState.indexExists()) {
+            return new UnavailableShardsException(null,
+                "at least one primary shard for the index [" + localState.concreteIndexName + "] is unavailable");
         } else {
-            return new IndexNotFoundException(SECURITY_INDEX_NAME);
+            return new IndexNotFoundException(localState.concreteIndexName);
         }
     }
 
@@ -163,22 +152,36 @@ public class SecurityIndexManager implements ClusterStateListener {
         if (event.state().blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)) {
             // wait until the gateway has recovered from disk, otherwise we think we don't have the
             // .security index but they may not have been restored from the cluster state on disk
-            LOGGER.debug("security index manager waiting until state has been recovered");
+            logger.debug("security index manager waiting until state has been recovered");
             return;
         }
         final State previousState = indexState;
-        final IndexMetaData indexMetaData = resolveConcreteIndex(indexName, event.state().metaData());
-        final boolean indexExists = indexMetaData != null;
-        final boolean isIndexUpToDate = indexExists == false ||
-            INDEX_FORMAT_SETTING.get(indexMetaData.getSettings()).intValue() == INTERNAL_INDEX_FORMAT;
+        final IndexMetadata indexMetadata = resolveConcreteIndex(systemIndexDescriptor.getAliasName(), event.state().metadata());
+        final Instant creationTime = indexMetadata != null ? Instant.ofEpochMilli(indexMetadata.getCreationDate()) : null;
+        final boolean isIndexUpToDate = indexMetadata == null ||
+            INDEX_FORMAT_SETTING.get(indexMetadata.getSettings()) == systemIndexDescriptor.getIndexFormat();
         final boolean indexAvailable = checkIndexAvailable(event.state());
-        final boolean mappingIsUpToDate = indexExists == false || checkIndexMappingUpToDate(event.state());
         final Version mappingVersion = oldestIndexMappingVersion(event.state());
-        final ClusterHealthStatus indexStatus = indexMetaData == null ? null :
-            new ClusterIndexHealth(indexMetaData, event.state().getRoutingTable().index(indexMetaData.getIndex())).getStatus();
-        final String concreteIndexName = indexMetaData == null ? INTERNAL_SECURITY_INDEX : indexMetaData.getIndex().getName();
-        final State newState = new State(indexExists, isIndexUpToDate, indexAvailable, mappingIsUpToDate, mappingVersion, concreteIndexName,
-            indexStatus);
+        final String concreteIndexName = indexMetadata == null
+            ? systemIndexDescriptor.getPrimaryIndex()
+            : indexMetadata.getIndex().getName();
+        final ClusterHealthStatus indexHealth;
+        final IndexMetadata.State indexState;
+        if (indexMetadata == null) {
+            // Index does not exist
+            indexState = null;
+            indexHealth = null;
+        } else if (indexMetadata.getState() == IndexMetadata.State.CLOSE) {
+            indexState = IndexMetadata.State.CLOSE;
+            indexHealth = null;
+            logger.warn("Index [{}] is closed. This is likely to prevent security from functioning correctly", concreteIndexName);
+        } else {
+            indexState = IndexMetadata.State.OPEN;
+            final IndexRoutingTable routingTable = event.state().getRoutingTable().index(indexMetadata.getIndex());
+            indexHealth = new ClusterIndexHealth(indexMetadata, routingTable).getStatus();
+        }
+        final State newState = new State(creationTime, isIndexUpToDate, indexAvailable, mappingVersion,
+                concreteIndexName, indexHealth, indexState);
         this.indexState = newState;
 
         if (newState.equals(previousState) == false) {
@@ -189,79 +192,51 @@ public class SecurityIndexManager implements ClusterStateListener {
     }
 
     private boolean checkIndexAvailable(ClusterState state) {
-        final IndexRoutingTable routingTable = getIndexRoutingTable(state);
-        if (routingTable != null && routingTable.allPrimaryShardsActive()) {
+        final String aliasName = systemIndexDescriptor.getAliasName();
+        IndexMetadata metadata = resolveConcreteIndex(aliasName, state.metadata());
+        if (metadata == null) {
+            logger.debug("Index [{}] is not available - no metadata", aliasName);
+            return false;
+        }
+        if (metadata.getState() == IndexMetadata.State.CLOSE) {
+            logger.warn("Index [{}] is closed", aliasName);
+            return false;
+        }
+        final IndexRoutingTable routingTable = state.routingTable().index(metadata.getIndex());
+        if (routingTable == null || routingTable.allPrimaryShardsActive() == false) {
+            logger.debug("Index [{}] is not yet active", aliasName);
+            return false;
+        } else {
             return true;
         }
-        LOGGER.debug("Security index [{}] is not yet active", indexName);
-        return false;
-    }
-
-    /**
-     * Returns the routing-table for this index, or <code>null</code> if the index does not exist.
-     */
-    private IndexRoutingTable getIndexRoutingTable(ClusterState clusterState) {
-        IndexMetaData metaData = resolveConcreteIndex(indexName, clusterState.metaData());
-        if (metaData == null) {
-            return null;
-        } else {
-            return clusterState.routingTable().index(metaData.getIndex());
-        }
-    }
-
-    public static boolean checkTemplateExistsAndVersionMatches(
-            String templateName, ClusterState state, Logger logger, Predicate<Version> predicate) {
-
-        return TemplateUtils.checkTemplateExistsAndVersionMatches(templateName, SECURITY_VERSION_STRING,
-            state, logger, predicate);
-    }
-
-    private boolean checkIndexMappingUpToDate(ClusterState clusterState) {
-        return checkIndexMappingVersionMatches(clusterState, Version.CURRENT::equals);
-    }
-
-    private boolean checkIndexMappingVersionMatches(ClusterState clusterState,
-                                                    Predicate<Version> predicate) {
-        return checkIndexMappingVersionMatches(indexName, clusterState, LOGGER, predicate);
-    }
-
-    public static boolean checkIndexMappingVersionMatches(String indexName,
-                                                          ClusterState clusterState, Logger logger,
-                                                          Predicate<Version> predicate) {
-        return loadIndexMappingVersions(indexName, clusterState, logger)
-                .stream().allMatch(predicate);
     }
 
     private Version oldestIndexMappingVersion(ClusterState clusterState) {
-        final Set<Version> versions = loadIndexMappingVersions(indexName, clusterState, LOGGER);
+        final Set<Version> versions = loadIndexMappingVersions(systemIndexDescriptor.getAliasName(), clusterState, logger);
         return versions.stream().min(Version::compareTo).orElse(null);
     }
 
-    private static Set<Version> loadIndexMappingVersions(String indexName,
-                                                         ClusterState clusterState, Logger logger) {
+    private static Set<Version> loadIndexMappingVersions(String aliasName, ClusterState clusterState, Logger logger) {
         Set<Version> versions = new HashSet<>();
-        IndexMetaData indexMetaData = resolveConcreteIndex(indexName, clusterState.metaData());
-        if (indexMetaData != null) {
-            for (Object object : indexMetaData.getMappings().values().toArray()) {
-                MappingMetaData mappingMetaData = (MappingMetaData) object;
-                if (mappingMetaData.type().equals(MapperService.DEFAULT_MAPPING)) {
-                    continue;
-                }
-                versions.add(readMappingVersion(indexName, mappingMetaData, logger));
+        IndexMetadata indexMetadata = resolveConcreteIndex(aliasName, clusterState.metadata());
+        if (indexMetadata != null) {
+            MappingMetadata mmd = indexMetadata.mapping();
+            if (mmd != null) {
+                versions.add(readMappingVersion(aliasName, mmd, logger));
             }
         }
         return versions;
     }
 
     /**
-     * Resolves a concrete index name or alias to a {@link IndexMetaData} instance.  Requires
+     * Resolves a concrete index name or alias to a {@link IndexMetadata} instance.  Requires
      * that if supplied with an alias, the alias resolves to at most one concrete index.
      */
-    private static IndexMetaData resolveConcreteIndex(final String indexOrAliasName, final MetaData metaData) {
-        final AliasOrIndex aliasOrIndex = metaData.getAliasAndIndexLookup().get(indexOrAliasName);
-        if (aliasOrIndex != null) {
-            final List<IndexMetaData> indices = aliasOrIndex.getIndices();
-            if (aliasOrIndex.isAlias() && indices.size() > 1) {
+    private static IndexMetadata resolveConcreteIndex(final String indexOrAliasName, final Metadata metadata) {
+        final IndexAbstraction indexAbstraction = metadata.getIndicesLookup().get(indexOrAliasName);
+        if (indexAbstraction != null) {
+            final List<IndexMetadata> indices = indexAbstraction.getIndices();
+            if (indexAbstraction.getType() != IndexAbstraction.Type.CONCRETE_INDEX && indices.size() > 1) {
                 throw new IllegalStateException("Alias [" + indexOrAliasName + "] points to more than one index: " +
                         indices.stream().map(imd -> imd.getIndex().getName()).collect(Collectors.toList()));
             }
@@ -270,13 +245,12 @@ public class SecurityIndexManager implements ClusterStateListener {
         return null;
     }
 
-    private static Version readMappingVersion(String indexName, MappingMetaData mappingMetaData,
-                                              Logger logger) {
+    private static Version readMappingVersion(String indexName, MappingMetadata mappingMetadata, Logger logger) {
         try {
             Map<String, Object> meta =
-                    (Map<String, Object>) mappingMetaData.sourceAsMap().get("_meta");
+                    (Map<String, Object>) mappingMetadata.sourceAsMap().get("_meta");
             if (meta == null) {
-                logger.info("Missing _meta field in mapping [{}] of index [{}]", mappingMetaData.type(), indexName);
+                logger.info("Missing _meta field in mapping [{}] of index [{}]", mappingMetadata.type(), indexName);
                 throw new IllegalStateException("Cannot read security-version string in index " + indexName);
             }
             return Version.fromString((String) meta.get(SECURITY_VERSION_STRING));
@@ -289,45 +263,56 @@ public class SecurityIndexManager implements ClusterStateListener {
     }
 
     /**
-     * Validates the security index is up to date and does not need to migrated. If it is not, the
-     * consumer is called with an exception. If the security index is up to date, the runnable will
+     * Validates that the index is up to date and does not need to be migrated. If it is not, the
+     * consumer is called with an exception. If the index is up to date, the runnable will
      * be executed. <b>NOTE:</b> this method does not check the availability of the index; this check
      * is left to the caller so that this condition can be handled appropriately.
      */
     public void checkIndexVersionThenExecute(final Consumer<Exception> consumer, final Runnable andThen) {
         final State indexState = this.indexState; // use a local copy so all checks execute against the same state!
-        if (indexState.indexExists && indexState.isIndexUpToDate == false) {
+        if (indexState.indexExists() && indexState.isIndexUpToDate == false) {
             consumer.accept(new IllegalStateException(
-                "Security index is not on the current version. Security features relying on the index will not be available until " +
-                    "the upgrade API is run on the security index"));
+                    "Index [" + indexState.concreteIndexName + "] is not on the current version. Security features relying on the index"
+                            + " will not be available until the upgrade API is run on the index"));
         } else {
             andThen.run();
         }
     }
 
     /**
-     * Prepares the index by creating it if it doesn't exist or updating the mappings if the mappings are
-     * out of date. After any tasks have been executed, the runnable is then executed.
+     * Prepares the index by creating it if it doesn't exist, then executes the runnable.
+     * @param consumer a handler for any exceptions that are raised either during preparation or execution
+     * @param andThen executed if the index exists or after preparation is performed successfully
      */
     public void prepareIndexIfNeededThenExecute(final Consumer<Exception> consumer, final Runnable andThen) {
         final State indexState = this.indexState; // use a local copy so all checks execute against the same state!
-        // TODO we should improve this so we don't fire off a bunch of requests to do the same thing (create or update mappings)
-        if (indexState == State.UNRECOVERED_STATE) {
-            consumer.accept(new ElasticsearchStatusException("Cluster state has not been recovered yet, cannot write to the security index",
-                    RestStatus.SERVICE_UNAVAILABLE));
-        } else if (indexState.indexExists && indexState.isIndexUpToDate == false) {
-            consumer.accept(new IllegalStateException(
-                    "Security index is not on the current version. Security features relying on the index will not be available until " +
-                            "the upgrade API is run on the security index"));
-        } else if (indexState.indexExists == false) {
-            LOGGER.info("security index does not exist. Creating [{}] with alias [{}]", INTERNAL_SECURITY_INDEX, SECURITY_INDEX_NAME);
-            Tuple<String, Settings> mappingAndSettings = loadMappingAndSettingsSourceFromTemplate();
-            CreateIndexRequest request = new CreateIndexRequest(INTERNAL_SECURITY_INDEX)
-                    .alias(new Alias(SECURITY_INDEX_NAME))
-                    .mapping(MapperService.SINGLE_MAPPING_NAME, mappingAndSettings.v1(), XContentType.JSON)
-                    .waitForActiveShards(ActiveShardCount.ALL)
-                    .settings(mappingAndSettings.v2());
-            executeAsyncWithOrigin(client.threadPool().getThreadContext(), SECURITY_ORIGIN, request,
+        try {
+            // TODO we should improve this so we don't fire off a bunch of requests to do the same thing (create or update mappings)
+            if (indexState == State.UNRECOVERED_STATE) {
+                throw new ElasticsearchStatusException(
+                        "Cluster state has not been recovered yet, cannot write to the [" + indexState.concreteIndexName + "] index",
+                        RestStatus.SERVICE_UNAVAILABLE);
+            } else if (indexState.indexExists() && indexState.isIndexUpToDate == false) {
+                throw new IllegalStateException("Index [" + indexState.concreteIndexName + "] is not on the current version."
+                        + "Security features relying on the index will not be available until the upgrade API is run on the index");
+            } else if (indexState.indexExists() == false) {
+                assert indexState.concreteIndexName != null;
+                logger.info(
+                    "security index does not exist, creating [{}] with alias [{}]",
+                    indexState.concreteIndexName,
+                    systemIndexDescriptor.getAliasName()
+                );
+
+                // Although `TransportCreateIndexAction` is capable of automatically applying the right mappings, settings and aliases for
+                // system indices, we nonetheless specify them here so that the values from `this.systemIndexDescriptor` are used.
+                CreateIndexRequest request = new CreateIndexRequest(indexState.concreteIndexName)
+                    .origin(systemIndexDescriptor.getOrigin())
+                    .mapping(systemIndexDescriptor.getMappings())
+                    .settings(systemIndexDescriptor.getSettings())
+                    .alias(new Alias(systemIndexDescriptor.getAliasName()))
+                    .waitForActiveShards(ActiveShardCount.ALL);
+
+                executeAsyncWithOrigin(client.threadPool().getThreadContext(), systemIndexDescriptor.getOrigin(), request,
                     new ActionListener<CreateIndexResponse>() {
                         @Override
                         public void onResponse(CreateIndexResponse createIndexResponse) {
@@ -350,44 +335,11 @@ public class SecurityIndexManager implements ClusterStateListener {
                             }
                         }
                     }, client.admin().indices()::create);
-        } else if (indexState.mappingUpToDate == false) {
-            LOGGER.info(
-                "security index [{}] (alias [{}]) is not up to date. Updating mapping", indexState.concreteIndexName, SECURITY_INDEX_NAME);
-
-            PutMappingRequest request = new PutMappingRequest(indexState.concreteIndexName)
-                    .source(loadMappingAndSettingsSourceFromTemplate().v1(), XContentType.JSON)
-                    .type(MapperService.SINGLE_MAPPING_NAME);
-            executeAsyncWithOrigin(client.threadPool().getThreadContext(), SECURITY_ORIGIN, request,
-                    ActionListener.<AcknowledgedResponse>wrap(putMappingResponse -> {
-                        if (putMappingResponse.isAcknowledged()) {
-                            andThen.run();
-                        } else {
-                            consumer.accept(new IllegalStateException("put mapping request was not acknowledged"));
-                        }
-                    }, consumer), client.admin().indices()::putMapping);
-        } else {
-            andThen.run();
-        }
-    }
-
-    private Tuple<String, Settings> loadMappingAndSettingsSourceFromTemplate() {
-        final byte[] template = TemplateUtils.loadTemplate("/" + SECURITY_TEMPLATE_NAME + ".json", Version.CURRENT.toString(),
-                SecurityIndexManager.TEMPLATE_VERSION_PATTERN).getBytes(StandardCharsets.UTF_8);
-        final PutIndexTemplateRequest request = new PutIndexTemplateRequest(SECURITY_TEMPLATE_NAME).source(template, XContentType.JSON);
-
-        final String mappingSource = request.mappings().get(MapperService.SINGLE_MAPPING_NAME);
-        try (XContentParser parser = XContentType.JSON.xContent().createParser(NamedXContentRegistry.EMPTY,
-                DeprecationHandler.THROW_UNSUPPORTED_OPERATION, mappingSource)) {
-            // remove the type wrapping to get the mapping
-            ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser::getTokenLocation); // {
-            ensureFieldName(parser, parser.nextToken(), MapperService.SINGLE_MAPPING_NAME); // _doc
-            ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser::getTokenLocation); // {
-
-            XContentBuilder builder = JsonXContent.contentBuilder();
-            builder.generator().copyCurrentStructure(parser);
-            return new Tuple<>(Strings.toString(builder), request.settings());
-        } catch (IOException e) {
-            throw ExceptionsHelper.convertToRuntime(e);
+            } else {
+                andThen.run();
+            }
+        } catch (Exception e) {
+            consumer.accept(e);
         }
     }
 
@@ -395,39 +347,39 @@ public class SecurityIndexManager implements ClusterStateListener {
      * Return true if the state moves from an unhealthy ("RED") index state to a healthy ("non-RED") state.
      */
     public static boolean isMoveFromRedToNonRed(State previousState, State currentState) {
-        return (previousState.indexStatus == null || previousState.indexStatus == ClusterHealthStatus.RED)
-                && currentState.indexStatus != null && currentState.indexStatus != ClusterHealthStatus.RED;
+        return (previousState.indexHealth == null || previousState.indexHealth == ClusterHealthStatus.RED)
+                && currentState.indexHealth != null && currentState.indexHealth != ClusterHealthStatus.RED;
     }
 
     /**
      * Return true if the state moves from the index existing to the index not existing.
      */
     public static boolean isIndexDeleted(State previousState, State currentState) {
-        return previousState.indexStatus != null && currentState.indexStatus == null;
+        return previousState.indexHealth != null && currentState.indexHealth == null;
     }
 
     /**
      * State of the security index.
      */
     public static class State {
-        public static final State UNRECOVERED_STATE = new State(false, false, false, false, null, null, null);
-        public final boolean indexExists;
+        public static final State UNRECOVERED_STATE = new State(null, false, false, null, null, null, null);
+        public final Instant creationTime;
         public final boolean isIndexUpToDate;
         public final boolean indexAvailable;
-        public final boolean mappingUpToDate;
         public final Version mappingVersion;
         public final String concreteIndexName;
-        public final ClusterHealthStatus indexStatus;
+        public final ClusterHealthStatus indexHealth;
+        public final IndexMetadata.State indexState;
 
-        public State(boolean indexExists, boolean isIndexUpToDate, boolean indexAvailable,
-                     boolean mappingUpToDate, Version mappingVersion, String concreteIndexName, ClusterHealthStatus indexStatus) {
-            this.indexExists = indexExists;
+        public State(Instant creationTime, boolean isIndexUpToDate, boolean indexAvailable,
+                     Version mappingVersion, String concreteIndexName, ClusterHealthStatus indexHealth, IndexMetadata.State indexState) {
+            this.creationTime = creationTime;
             this.isIndexUpToDate = isIndexUpToDate;
             this.indexAvailable = indexAvailable;
-            this.mappingUpToDate = mappingUpToDate;
             this.mappingVersion = mappingVersion;
             this.concreteIndexName = concreteIndexName;
-            this.indexStatus = indexStatus;
+            this.indexHealth = indexHealth;
+            this.indexState = indexState;
         }
 
         @Override
@@ -435,19 +387,23 @@ public class SecurityIndexManager implements ClusterStateListener {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             State state = (State) o;
-            return indexExists == state.indexExists &&
+            return Objects.equals(creationTime, state.creationTime) &&
                 isIndexUpToDate == state.isIndexUpToDate &&
                 indexAvailable == state.indexAvailable &&
-                mappingUpToDate == state.mappingUpToDate &&
                 Objects.equals(mappingVersion, state.mappingVersion) &&
                 Objects.equals(concreteIndexName, state.concreteIndexName) &&
-                indexStatus == state.indexStatus;
+                indexHealth == state.indexHealth &&
+                indexState == state.indexState;
+        }
+
+        public boolean indexExists() {
+            return creationTime != null;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(indexExists, isIndexUpToDate, indexAvailable, mappingUpToDate, mappingVersion, concreteIndexName,
-                indexStatus);
+            return Objects.hash(creationTime, isIndexUpToDate, indexAvailable, mappingVersion, concreteIndexName,
+                indexHealth);
         }
     }
 }

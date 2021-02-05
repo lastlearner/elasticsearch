@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.ingest.common;
@@ -44,8 +33,16 @@ public class DateFormatTests extends ESTestCase {
                 equalTo("11 24 01:29:01"));
     }
 
-    public void testParseJavaWithTimeZone() {
+    public void testParseYearOfEraJavaWithTimeZone() {
         Function<String, ZonedDateTime> javaFunction = DateFormat.Java.getFunction("yyyy-MM-dd'T'HH:mm:ss.SSSZZ",
+            ZoneOffset.UTC, Locale.ROOT);
+        ZonedDateTime datetime = javaFunction.apply("2018-02-05T13:44:56.657+0100");
+        String expectedDateTime = DateFormatter.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC).format(datetime);
+        assertThat(expectedDateTime, is("2018-02-05T12:44:56.657Z"));
+    }
+
+    public void testParseYearJavaWithTimeZone() {
+        Function<String, ZonedDateTime> javaFunction = DateFormat.Java.getFunction("uuuu-MM-dd'T'HH:mm:ss.SSSZZ",
             ZoneOffset.UTC, Locale.ROOT);
         ZonedDateTime datetime = javaFunction.apply("2018-02-05T13:44:56.657+0100");
         String expectedDateTime = DateFormatter.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC).format(datetime);
@@ -59,6 +56,31 @@ public class DateFormatTests extends ESTestCase {
         int year = ZonedDateTime.now(ZoneOffset.UTC).getYear();
         ZonedDateTime dateTime = javaFunction.apply("12/06");
         assertThat(dateTime.getYear(), is(year));
+    }
+
+    public void testParseWeekBasedYearAndWeek() {
+        String format = "YYYY-ww";
+        ZoneId timezone = DateUtils.of("Europe/Amsterdam");
+        Function<String, ZonedDateTime> javaFunction = DateFormat.Java.getFunction(format, timezone, Locale.ROOT);
+        ZonedDateTime dateTime = javaFunction.apply("2020-33");
+        assertThat(dateTime, equalTo(ZonedDateTime.of(2020,8,10,0,0,0,0,timezone)));
+    }
+
+    public void testParseWeekBasedYear() {
+        String format = "YYYY";
+        ZoneId timezone = DateUtils.of("Europe/Amsterdam");
+        Function<String, ZonedDateTime> javaFunction = DateFormat.Java.getFunction(format, timezone, Locale.ROOT);
+        ZonedDateTime dateTime = javaFunction.apply("2019");
+        assertThat(dateTime, equalTo(ZonedDateTime.of(2018,12,31,0,0,0,0,timezone)));
+    }
+
+    public void testParseWeekBasedWithLocale() {
+        String format = randomFrom("YYYY-ww");
+        ZoneId timezone = DateUtils.of("Europe/Amsterdam");
+        Function<String, ZonedDateTime> javaFunction = DateFormat.Java.getFunction(format, timezone, Locale.US);
+        ZonedDateTime dateTime = javaFunction.apply("2020-33");
+        //33rd week of 2020 starts on 9th August 2020 as per US locale
+        assertThat(dateTime, equalTo(ZonedDateTime.of(2020,8,9,0,0,0,0,timezone)));
     }
 
     public void testParseUnixMs() {
@@ -77,12 +99,17 @@ public class DateFormatTests extends ESTestCase {
     }
 
     public void testParseISO8601() {
-        assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.UTC, null).apply("2001-01-01T00:00:00-0800").toInstant().toEpochMilli(),
-                equalTo(978336000000L));
+        assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.UTC, null).apply("2001-01-01T00:00:00-0800")
+                                     .toInstant().toEpochMilli(), equalTo(978336000000L));
         assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.UTC, null).apply("2001-01-01T00:00:00-0800").toString(),
                 equalTo("2001-01-01T08:00Z"));
-        assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.UTC, null).apply("2001-01-01T00:00:00-0800").toString(),
-                equalTo("2001-01-01T08:00Z"));
+    }
+
+    public void testParseWhenZoneNotPresentInText() {
+        assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.of("+0100"), null).apply("2001-01-01T00:00:00")
+                                     .toInstant().toEpochMilli(), equalTo(978303600000L));
+        assertThat(DateFormat.Iso8601.getFunction(null, ZoneOffset.of("+0100"), null).apply("2001-01-01T00:00:00").toString(),
+            equalTo("2001-01-01T00:00+01:00"));
     }
 
     public void testParseISO8601Failure() {

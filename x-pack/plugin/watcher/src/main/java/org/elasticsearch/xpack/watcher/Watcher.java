@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher;
 
@@ -15,14 +16,14 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.bootstrap.BootstrapCheck;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.OriginSettingClient;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
-import org.elasticsearch.cluster.metadata.IndexTemplateMetaData;
+import org.elasticsearch.cluster.metadata.IndexTemplateMetadata;
+import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Booleans;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.inject.Module;
-import org.elasticsearch.common.inject.util.Providers;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.logging.LoggerMessageFormat;
 import org.elasticsearch.common.regex.Regex;
@@ -40,14 +41,16 @@ import org.elasticsearch.core.internal.io.IOUtils;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.index.IndexModule;
+import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.license.XPackLicenseState;
-import org.elasticsearch.node.Node;
-import org.elasticsearch.plugins.ActionPlugin;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.ReloadablePlugin;
 import org.elasticsearch.plugins.ScriptPlugin;
+import org.elasticsearch.plugins.SystemIndexPlugin;
+import org.elasticsearch.repositories.RepositoriesService;
 import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestHandler;
+import org.elasticsearch.script.ScriptCache;
 import org.elasticsearch.script.ScriptContext;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.script.TemplateScript;
@@ -55,21 +58,21 @@ import org.elasticsearch.threadpool.ExecutorBuilder;
 import org.elasticsearch.threadpool.FixedExecutorBuilder;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.watcher.ResourceWatcherService;
-import org.elasticsearch.xpack.core.ClientHelper;
 import org.elasticsearch.xpack.core.XPackPlugin;
 import org.elasticsearch.xpack.core.XPackSettings;
+import org.elasticsearch.xpack.core.action.XPackInfoFeatureAction;
+import org.elasticsearch.xpack.core.action.XPackUsageFeatureAction;
 import org.elasticsearch.xpack.core.ssl.SSLService;
 import org.elasticsearch.xpack.core.watcher.WatcherField;
 import org.elasticsearch.xpack.core.watcher.actions.ActionFactory;
 import org.elasticsearch.xpack.core.watcher.actions.ActionRegistry;
-import org.elasticsearch.xpack.core.watcher.condition.ConditionFactory;
 import org.elasticsearch.xpack.core.watcher.condition.ConditionRegistry;
 import org.elasticsearch.xpack.core.watcher.crypto.CryptoService;
 import org.elasticsearch.xpack.core.watcher.execution.TriggeredWatchStoreField;
 import org.elasticsearch.xpack.core.watcher.history.HistoryStoreField;
 import org.elasticsearch.xpack.core.watcher.input.none.NoneInput;
-import org.elasticsearch.xpack.core.watcher.transform.TransformFactory;
 import org.elasticsearch.xpack.core.watcher.transform.TransformRegistry;
+import org.elasticsearch.xpack.core.watcher.transport.actions.QueryWatchesAction;
 import org.elasticsearch.xpack.core.watcher.transport.actions.ack.AckWatchAction;
 import org.elasticsearch.xpack.core.watcher.transport.actions.activate.ActivateWatchAction;
 import org.elasticsearch.xpack.core.watcher.transport.actions.delete.DeleteWatchAction;
@@ -138,9 +141,11 @@ import org.elasticsearch.xpack.watcher.notification.pagerduty.PagerDutyService;
 import org.elasticsearch.xpack.watcher.notification.slack.SlackService;
 import org.elasticsearch.xpack.watcher.rest.action.RestAckWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestActivateWatchAction;
+import org.elasticsearch.xpack.watcher.rest.action.RestActivateWatchAction.DeactivateRestHandler;
 import org.elasticsearch.xpack.watcher.rest.action.RestDeleteWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestExecuteWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestGetWatchAction;
+import org.elasticsearch.xpack.watcher.rest.action.RestQueryWatchesAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestPutWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestWatchServiceAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestWatcherStatsAction;
@@ -151,14 +156,15 @@ import org.elasticsearch.xpack.watcher.transform.script.ScriptTransformFactory;
 import org.elasticsearch.xpack.watcher.transform.script.WatcherTransformScript;
 import org.elasticsearch.xpack.watcher.transform.search.SearchTransform;
 import org.elasticsearch.xpack.watcher.transform.search.SearchTransformFactory;
-import org.elasticsearch.xpack.watcher.transport.actions.ack.TransportAckWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.activate.TransportActivateWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.delete.TransportDeleteWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.execute.TransportExecuteWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.get.TransportGetWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.put.TransportPutWatchAction;
-import org.elasticsearch.xpack.watcher.transport.actions.service.TransportWatcherServiceAction;
-import org.elasticsearch.xpack.watcher.transport.actions.stats.TransportWatcherStatsAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportQueryWatchesAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportAckWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportActivateWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportDeleteWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportExecuteWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportGetWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportPutWatchAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportWatcherServiceAction;
+import org.elasticsearch.xpack.watcher.transport.actions.TransportWatcherStatsAction;
 import org.elasticsearch.xpack.watcher.trigger.TriggerEngine;
 import org.elasticsearch.xpack.watcher.trigger.TriggerService;
 import org.elasticsearch.xpack.watcher.trigger.manual.ManualTriggerEngine;
@@ -177,8 +183,6 @@ import org.elasticsearch.xpack.watcher.watch.WatchParser;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Clock;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -199,7 +203,7 @@ import static java.util.Collections.emptyList;
 import static org.elasticsearch.common.settings.Setting.Property.NodeScope;
 import static org.elasticsearch.xpack.core.ClientHelper.WATCHER_ORIGIN;
 
-public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, ReloadablePlugin {
+public class Watcher extends Plugin implements SystemIndexPlugin, ScriptPlugin, ReloadablePlugin {
 
     // This setting is only here for backward compatibility reasons as 6.x indices made use of it. It can be removed in 8.x.
     @Deprecated
@@ -209,6 +213,8 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             Setting.boolSetting("xpack.watcher.encrypt_sensitive_data", false, Setting.Property.NodeScope);
     public static final Setting<TimeValue> MAX_STOP_TIMEOUT_SETTING =
             Setting.timeSetting("xpack.watcher.stop.timeout", TimeValue.timeValueSeconds(30), Setting.Property.NodeScope);
+    public static final Setting<Boolean> USE_ILM_INDEX_MANAGEMENT =
+        Setting.boolSetting("xpack.watcher.use_ilm_index_management", true, NodeScope);
     private static final Setting<Integer> SETTING_BULK_ACTIONS =
         Setting.intSetting("xpack.watcher.bulk.actions", 1, 1, 10000, NodeScope);
     private static final Setting<Integer> SETTING_BULK_CONCURRENT_REQUESTS =
@@ -220,7 +226,8 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             new ByteSizeValue(1, ByteSizeUnit.MB), new ByteSizeValue(10, ByteSizeUnit.MB), NodeScope);
 
     public static final ScriptContext<TemplateScript.Factory> SCRIPT_TEMPLATE_CONTEXT
-        = new ScriptContext<>("xpack_template", TemplateScript.Factory.class);
+        = new ScriptContext<>("xpack_template", TemplateScript.Factory.class,
+        200, TimeValue.timeValueMillis(0), ScriptCache.UNLIMITED_COMPILATION_RATE.asTuple());
 
     private static final Logger logger = LogManager.getLogger(Watcher.class);
     private WatcherIndexingListener listener;
@@ -228,16 +235,14 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
     private BulkProcessor bulkProcessor;
 
     protected final Settings settings;
-    protected final boolean transportClient;
     protected final boolean enabled;
     protected List<NotificationService> reloadableServices = new ArrayList<>();
 
     public Watcher(final Settings settings) {
         this.settings = settings;
-        this.transportClient = XPackPlugin.transportClientMode(settings);
         this.enabled = XPackSettings.WATCHER_ENABLED.get(settings);
 
-        if (enabled && transportClient == false) {
+        if (enabled) {
             validAutoCreateIndex(settings, logger);
         }
     }
@@ -251,7 +256,9 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
     public Collection<Object> createComponents(Client client, ClusterService clusterService, ThreadPool threadPool,
                                                ResourceWatcherService resourceWatcherService, ScriptService scriptService,
                                                NamedXContentRegistry xContentRegistry, Environment environment,
-                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry) {
+                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry,
+                                               IndexNameExpressionResolver expressionResolver,
+                                               Supplier<RepositoriesService> repositoriesServiceSupplier) {
         if (enabled == false) {
             return Collections.emptyList();
         }
@@ -267,13 +274,16 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             throw new UncheckedIOException(e);
         }
 
-        new WatcherIndexTemplateRegistry(clusterService, threadPool, client, xContentRegistry);
+        WatcherIndexTemplateRegistry templateRegistry = new WatcherIndexTemplateRegistry(environment.settings(),
+            clusterService, threadPool, client, xContentRegistry);
+        templateRegistry.initialize();
 
+        final SSLService sslService = getSslService();
         // http client
-        httpClient = new HttpClient(settings, getSslService(), cryptoService, clusterService);
+        httpClient = new HttpClient(settings, sslService, cryptoService, clusterService);
 
         // notification
-        EmailService emailService = new EmailService(settings, cryptoService, clusterService.getClusterSettings());
+        EmailService emailService = new EmailService(settings, cryptoService, sslService, clusterService.getClusterSettings());
         JiraService jiraService = new JiraService(settings, httpClient, clusterService.getClusterSettings());
         SlackService slackService = new SlackService(settings, httpClient, clusterService.getClusterSettings());
         PagerDutyService pagerDutyService = new PagerDutyService(settings, httpClient, clusterService.getClusterSettings());
@@ -287,22 +297,23 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         Map<String, EmailAttachmentParser> emailAttachmentParsers = new HashMap<>();
         emailAttachmentParsers.put(HttpEmailAttachementParser.TYPE, new HttpEmailAttachementParser(httpClient, templateEngine));
         emailAttachmentParsers.put(DataAttachmentParser.TYPE, new DataAttachmentParser());
-        emailAttachmentParsers.put(ReportingAttachmentParser.TYPE, new ReportingAttachmentParser(settings, httpClient, templateEngine));
+        emailAttachmentParsers.put(ReportingAttachmentParser.TYPE,
+            new ReportingAttachmentParser(settings, httpClient, templateEngine, clusterService.getClusterSettings()));
         EmailAttachmentsParser emailAttachmentsParser = new EmailAttachmentsParser(emailAttachmentParsers);
 
         // conditions
-        final Map<String, ConditionFactory> parsers = new HashMap<>();
-        parsers.put(InternalAlwaysCondition.TYPE, (c, id, p) -> InternalAlwaysCondition.parse(id, p));
-        parsers.put(NeverCondition.TYPE, (c, id, p) -> NeverCondition.parse(id, p));
-        parsers.put(ArrayCompareCondition.TYPE, ArrayCompareCondition::parse);
-        parsers.put(CompareCondition.TYPE, CompareCondition::parse);
-        parsers.put(ScriptCondition.TYPE, (c, id, p) -> ScriptCondition.parse(scriptService, id, p));
 
-        final ConditionRegistry conditionRegistry = new ConditionRegistry(Collections.unmodifiableMap(parsers), getClock());
-        final Map<String, TransformFactory> transformFactories = new HashMap<>();
-        transformFactories.put(ScriptTransform.TYPE, new ScriptTransformFactory(scriptService));
-        transformFactories.put(SearchTransform.TYPE, new SearchTransformFactory(settings, client, xContentRegistry, scriptService));
-        final TransformRegistry transformRegistry = new TransformRegistry(Collections.unmodifiableMap(transformFactories));
+        final ConditionRegistry conditionRegistry = new ConditionRegistry(
+                Map.of(
+                        InternalAlwaysCondition.TYPE, (c, id, p) -> InternalAlwaysCondition.parse(id, p),
+                        NeverCondition.TYPE, (c, id, p) -> NeverCondition.parse(id, p),
+                        ArrayCompareCondition.TYPE, ArrayCompareCondition::parse,
+                        CompareCondition.TYPE, CompareCondition::parse,
+                        ScriptCondition.TYPE, (c, id, p) -> ScriptCondition.parse(scriptService, id, p)),
+                getClock());
+        final TransformRegistry transformRegistry = new TransformRegistry(Map.of(
+                ScriptTransform.TYPE, new ScriptTransformFactory(scriptService),
+                SearchTransform.TYPE, new SearchTransformFactory(settings, client, xContentRegistry, scriptService)));
 
         // actions
         final Map<String, ActionFactory> actionFactoryMap = new HashMap<>();
@@ -326,7 +337,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         final InputRegistry inputRegistry = new InputRegistry(inputFactories);
         inputFactories.put(ChainInput.TYPE, new ChainInputFactory(inputRegistry));
 
-        bulkProcessor = BulkProcessor.builder(ClientHelper.clientWithOrigin(client, WATCHER_ORIGIN), new BulkProcessor.Listener() {
+        bulkProcessor = BulkProcessor.builder(new OriginSettingClient(client, WATCHER_ORIGIN)::bulk, new BulkProcessor.Listener() {
             @Override
             public void beforeBulk(long executionId, BulkRequest request) {
             }
@@ -334,14 +345,23 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             @Override
             public void afterBulk(long executionId, BulkRequest request, BulkResponse response) {
                 if (response.hasFailures()) {
-                    Map<String, String> triggeredWatches = Arrays.stream(response.getItems())
+                    Map<String, String> triggeredFailures = Arrays.stream(response.getItems())
                         .filter(BulkItemResponse::isFailed)
                         .filter(r -> r.getIndex().startsWith(TriggeredWatchStoreField.INDEX_NAME))
                         .collect(Collectors.toMap(BulkItemResponse::getId, BulkItemResponse::getFailureMessage));
-                    if (triggeredWatches.isEmpty() == false) {
-                        String failure = triggeredWatches.values().stream().collect(Collectors.joining(", "));
+                    Map<String, String> historyFailures = Arrays.stream(response.getItems())
+                        .filter(BulkItemResponse::isFailed)
+                        .filter(r -> r.getIndex().startsWith(HistoryStoreField.INDEX_PREFIX))
+                        .collect(Collectors.toMap(BulkItemResponse::getId, BulkItemResponse::getFailureMessage));
+                    if (triggeredFailures.isEmpty() == false) {
+                        String failure = triggeredFailures.values().stream().collect(Collectors.joining(", "));
                         logger.error("triggered watches could not be deleted {}, failure [{}]",
-                            triggeredWatches.keySet(), Strings.substring(failure, 0, 2000));
+                            triggeredFailures.keySet(), Strings.substring(failure, 0, 2000));
+                    }
+                    if (historyFailures.isEmpty() == false) {
+                        String failure = historyFailures.values().stream().collect(Collectors.joining(", "));
+                        logger.error("watch history could not be written {}, failure [{}]",
+                            historyFailures.keySet(), Strings.substring(failure, 0, 2000));
                     }
 
                     Map<String, String> overwrittenIds = Arrays.stream(response.getItems())
@@ -409,10 +429,11 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         final WatcherLifeCycleService watcherLifeCycleService =
                 new WatcherLifeCycleService(clusterService, watcherService);
 
-        listener = new WatcherIndexingListener(watchParser, getClock(), triggerService);
+        listener = new WatcherIndexingListener(watchParser, getClock(), triggerService, watcherLifeCycleService.getState());
         clusterService.addListener(listener);
 
-        return Arrays.asList(registry, inputRegistry, historyStore, triggerService, triggeredWatchParser,
+        // note: clock is needed here until actions can be constructed directly instead of by guice
+        return Arrays.asList(new ClockHolder(getClock()), registry, inputRegistry, historyStore, triggerService, triggeredWatchParser,
                 watcherLifeCycleService, executionService, triggerEngineListener, watcherService, watchParser,
                 configuredTriggerEngine, triggeredWatchStore, watcherSearchTemplateService, slackService, pagerDutyService);
     }
@@ -430,20 +451,6 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
     }
 
     @Override
-    public Collection<Module> createGuiceModules() {
-        List<Module> modules = new ArrayList<>();
-        modules.add(b -> b.bind(Clock.class).toInstance(getClock())); //currently assuming the only place clock is bound
-        modules.add(b -> {
-            XPackPlugin.bindFeatureSet(b, WatcherFeatureSet.class);
-            if (transportClient || enabled == false) {
-                b.bind(WatcherService.class).toProvider(Providers.of(null));
-            }
-        });
-
-        return modules;
-    }
-
-    @Override
     public List<Setting<?>> getSettings() {
         List<Setting<?>> settings = new ArrayList<>();
         settings.add(INDEX_WATCHER_TEMPLATE_VERSION_SETTING);
@@ -454,6 +461,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         settings.add(Setting.intSetting("xpack.watcher.watch.scroll.size", 0, Setting.Property.NodeScope));
         settings.add(ENCRYPT_SENSITIVE_DATA_SETTING);
         settings.add(WatcherField.ENCRYPTION_KEY_SETTING);
+        settings.add(USE_ILM_INDEX_MANAGEMENT);
 
         settings.add(Setting.simpleString("xpack.watcher.internal.ops.search.default_timeout", Setting.Property.NodeScope));
         settings.add(Setting.simpleString("xpack.watcher.internal.ops.bulk.default_timeout", Setting.Property.NodeScope));
@@ -477,8 +485,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         settings.addAll(HtmlSanitizer.getSettings());
         settings.addAll(JiraService.getSettings());
         settings.addAll(PagerDutyService.getSettings());
-        settings.add(ReportingAttachmentParser.RETRIES_SETTING);
-        settings.add(ReportingAttachmentParser.INTERVAL_SETTING);
+        settings.addAll(ReportingAttachmentParser.getSettings());
 
         // http settings
         settings.addAll(HttpSettings.getSettings());
@@ -497,7 +504,8 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
                             InternalWatchExecutor.THREAD_POOL_NAME,
                             getWatcherThreadPoolSize(settings),
                             1000,
-                            "xpack.watcher.thread_pool");
+                            "xpack.watcher.thread_pool",
+                            false);
             return Collections.singletonList(builder);
         }
         return Collections.emptyList();
@@ -523,11 +531,13 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
      * @param settings The current settings
      * @return A number between 5 and the number of processors
      */
-    static int getWatcherThreadPoolSize(Settings settings) {
-        boolean isDataNode = Node.NODE_DATA_SETTING.get(settings);
+    static int getWatcherThreadPoolSize(final Settings settings) {
+        return getWatcherThreadPoolSize(DiscoveryNode.isDataNode(settings), EsExecutors.allocatedProcessors(settings));
+    }
+
+    static int getWatcherThreadPoolSize(final boolean isDataNode, final int allocatedProcessors) {
         if (isDataNode) {
-            int numberOfProcessors = EsExecutors.numberOfProcessors(settings);
-            long size = Math.max(Math.min(5 * numberOfProcessors, 50), numberOfProcessors);
+            final long size = Math.max(Math.min(5 * allocatedProcessors, 50), allocatedProcessors);
             return Math.toIntExact(size);
         } else {
             return 1;
@@ -536,8 +546,10 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
 
     @Override
     public List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> getActions() {
+        var usageAction = new ActionHandler<>(XPackUsageFeatureAction.WATCHER, WatcherUsageTransportAction.class);
+        var infoAction = new ActionHandler<>(XPackInfoFeatureAction.WATCHER, WatcherInfoTransportAction.class);
         if (false == enabled) {
-            return emptyList();
+            return Arrays.asList(usageAction, infoAction);
         }
         return Arrays.asList(new ActionHandler<>(PutWatchAction.INSTANCE, TransportPutWatchAction.class),
                 new ActionHandler<>(DeleteWatchAction.INSTANCE, TransportDeleteWatchAction.class),
@@ -546,7 +558,10 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
                 new ActionHandler<>(AckWatchAction.INSTANCE, TransportAckWatchAction.class),
                 new ActionHandler<>(ActivateWatchAction.INSTANCE, TransportActivateWatchAction.class),
                 new ActionHandler<>(WatcherServiceAction.INSTANCE, TransportWatcherServiceAction.class),
-                new ActionHandler<>(ExecuteWatchAction.INSTANCE, TransportExecuteWatchAction.class));
+                new ActionHandler<>(ExecuteWatchAction.INSTANCE, TransportExecuteWatchAction.class),
+                new ActionHandler<>(QueryWatchesAction.INSTANCE, TransportQueryWatchesAction.class),
+                usageAction,
+                infoAction);
     }
 
     @Override
@@ -557,19 +572,22 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             return emptyList();
         }
         return Arrays.asList(
-                new RestPutWatchAction(settings, restController),
-                new RestDeleteWatchAction(settings, restController),
-                new RestWatcherStatsAction(settings, restController),
-                new RestGetWatchAction(settings, restController),
-                new RestWatchServiceAction(settings, restController),
-                new RestAckWatchAction(settings, restController),
-                new RestActivateWatchAction(settings, restController),
-                new RestExecuteWatchAction(settings, restController));
+                new RestPutWatchAction(),
+                new RestDeleteWatchAction(),
+                new RestWatcherStatsAction(),
+                new RestGetWatchAction(),
+                new RestWatchServiceAction(),
+                new RestWatchServiceAction.StopRestHandler(),
+                new RestAckWatchAction(),
+                new RestActivateWatchAction(),
+                new DeactivateRestHandler(),
+                new RestExecuteWatchAction(),
+                new RestQueryWatchesAction());
     }
 
     @Override
     public void onIndexModule(IndexModule module) {
-        if (enabled == false || transportClient) {
+        if (enabled == false) {
             return;
         }
 
@@ -587,7 +605,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
 
         String errorMessage = LoggerMessageFormat.format("the [action.auto_create_index] setting value [{}] is too" +
                 " restrictive. disable [action.auto_create_index] or set it to " +
-                "[{},{},{}*]", (Object) value, Watch.INDEX, TriggeredWatchStoreField.INDEX_NAME, HistoryStoreField.INDEX_PREFIX);
+                "[{},{}]", (Object) value, Watch.INDEX, TriggeredWatchStoreField.INDEX_NAME);
         if (Booleans.isFalse(value)) {
             throw new IllegalArgumentException(errorMessage);
         }
@@ -600,15 +618,6 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         List<String> indices = new ArrayList<>();
         indices.add(".watches");
         indices.add(".triggered_watches");
-        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusDays(1)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(1)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(2)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(3)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(4)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(5)));
-        indices.add(HistoryStoreField.getHistoryIndexNameForTime(now.plusMonths(6)));
         for (String index : indices) {
             boolean matched = false;
             for (String match : matches) {
@@ -629,7 +638,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
                     }
                 }
             }
-            if (!matched) {
+            if (matched == false) {
                 throw new IllegalArgumentException(errorMessage);
             }
         }
@@ -641,7 +650,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
 
     // These are all old templates from pre 6.0 era, that need to be deleted
     @Override
-    public UnaryOperator<Map<String, IndexTemplateMetaData>> getIndexTemplateMetaDataUpgrader() {
+    public UnaryOperator<Map<String, IndexTemplateMetadata>> getIndexTemplateMetadataUpgrader() {
         return map -> {
             map.keySet().removeIf(name -> name.startsWith("watch_history_"));
             return map;
@@ -678,9 +687,17 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
      */
     @Override
     public void reload(Settings settings) {
-        if (enabled == false || transportClient) {
+        if (enabled == false) {
             return;
         }
         reloadableServices.forEach(s -> s.reload(settings));
+    }
+
+    @Override
+    public Collection<SystemIndexDescriptor> getSystemIndexDescriptors(Settings settings) {
+        return List.of(
+            new SystemIndexDescriptor(Watch.INDEX, "Contains Watch definitions"),
+            new SystemIndexDescriptor(TriggeredWatchStoreField.INDEX_NAME, "Used to track current and queued Watch execution")
+        );
     }
 }

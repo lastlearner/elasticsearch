@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.protocol.xpack.watcher;
 
@@ -36,7 +37,15 @@ public class PutWatchResponse extends ActionResponse implements ToXContentObject
     private long primaryTerm = SequenceNumbers.UNASSIGNED_PRIMARY_TERM;
     private boolean created;
 
-    public PutWatchResponse() {
+    public PutWatchResponse() {}
+
+    public PutWatchResponse(StreamInput in) throws IOException {
+        super(in);
+        id = in.readString();
+        version = in.readVLong();
+        seqNo = in.readZLong();
+        primaryTerm = in.readVLong();
+        created = in.readBoolean();
     }
 
     public PutWatchResponse(String id, long version, long seqNo, long primaryTerm, boolean created) {
@@ -106,22 +115,11 @@ public class PutWatchResponse extends ActionResponse implements ToXContentObject
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         out.writeString(id);
         out.writeVLong(version);
         out.writeZLong(seqNo);
         out.writeVLong(primaryTerm);
         out.writeBoolean(created);
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        id = in.readString();
-        version = in.readVLong();
-        seqNo = in.readZLong();
-        primaryTerm = in.readVLong();
-        created = in.readBoolean();
     }
 
     @Override

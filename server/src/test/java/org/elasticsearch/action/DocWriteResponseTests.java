@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.action;
@@ -41,42 +30,39 @@ public class DocWriteResponseTests extends ESTestCase {
         final DocWriteResponse response =
                 new DocWriteResponse(
                         new ShardId("index", "uuid", 0),
-                        "type",
                         "id",
                         SequenceNumbers.UNASSIGNED_SEQ_NO,
                         17,
                         0,
                         Result.CREATED) {};
-        assertEquals("/index/type/id", response.getLocation(null));
-        assertEquals("/index/type/id?routing=test_routing", response.getLocation("test_routing"));
+        assertEquals("/index/_doc/id", response.getLocation(null));
+        assertEquals("/index/_doc/id?routing=test_routing", response.getLocation("test_routing"));
     }
 
     public void testGetLocationNonAscii() {
         final DocWriteResponse response =
                 new DocWriteResponse(
                         new ShardId("index", "uuid", 0),
-                        "type",
                         "❤",
                         SequenceNumbers.UNASSIGNED_SEQ_NO,
                         17,
                         0,
                         Result.CREATED) {};
-        assertEquals("/index/type/%E2%9D%A4", response.getLocation(null));
-        assertEquals("/index/type/%E2%9D%A4?routing=%C3%A4", response.getLocation("ä"));
+        assertEquals("/index/_doc/%E2%9D%A4", response.getLocation(null));
+        assertEquals("/index/_doc/%E2%9D%A4?routing=%C3%A4", response.getLocation("ä"));
     }
 
     public void testGetLocationWithSpaces() {
         final DocWriteResponse response =
                 new DocWriteResponse(
                         new ShardId("index", "uuid", 0),
-                        "type",
                         "a b",
                         SequenceNumbers.UNASSIGNED_SEQ_NO,
                         17,
                         0,
                         Result.CREATED) {};
-        assertEquals("/index/type/a+b", response.getLocation(null));
-        assertEquals("/index/type/a+b?routing=c+d", response.getLocation("c d"));
+        assertEquals("/index/_doc/a+b", response.getLocation(null));
+        assertEquals("/index/_doc/a+b?routing=c+d", response.getLocation("c d"));
     }
 
     /**
@@ -87,7 +73,6 @@ public class DocWriteResponseTests extends ESTestCase {
         DocWriteResponse response =
             new DocWriteResponse(
                 new ShardId("index", "uuid", 0),
-                "type",
                 "id",
                 SequenceNumbers.UNASSIGNED_SEQ_NO,
                 17,

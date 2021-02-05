@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.gradle;
 
@@ -66,17 +55,14 @@ public class ConcatFilesTaskTests extends GradleUnitTestCase {
         file2.getParentFile().mkdirs();
         file1.createNewFile();
         file2.createNewFile();
-        Files.write(file1.toPath(), "Hello\nHello".getBytes());
-        Files.write(file2.toPath(), "Hello\nनमस्ते".getBytes());
+        Files.write(file1.toPath(), ("Hello" + System.lineSeparator() + "Hello").getBytes(StandardCharsets.UTF_8));
+        Files.write(file2.toPath(), ("Hello" + System.lineSeparator() + "नमस्ते").getBytes(StandardCharsets.UTF_8));
 
         concatFilesTask.setFiles(project.fileTree(file1.getParentFile().getParentFile()));
 
         concatFilesTask.concatFiles();
 
-        assertEquals(
-            Arrays.asList("Hello", "नमस्ते"),
-            Files.readAllLines(concatFilesTask.getTarget().toPath(), StandardCharsets.UTF_8)
-        );
+        assertEquals(Arrays.asList("Hello", "नमस्ते"), Files.readAllLines(concatFilesTask.getTarget().toPath(), StandardCharsets.UTF_8));
 
     }
 

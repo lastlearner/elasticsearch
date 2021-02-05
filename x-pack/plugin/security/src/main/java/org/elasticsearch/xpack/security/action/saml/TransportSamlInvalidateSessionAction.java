@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.security.action.saml;
 
@@ -91,7 +92,7 @@ public final class TransportSamlInvalidateSessionAction
             return;
         }
 
-        tokenService.findActiveTokensForRealm(realm.name(), ActionListener.wrap(tokens -> {
+        tokenService.findActiveTokensForRealm(realm.name(), containsMetadata(tokenMetadata), ActionListener.wrap(tokens -> {
                 logger.debug("Found [{}] token pairs to invalidate for SAML metadata [{}]", tokens.size(), tokenMetadata);
                 if (tokens.isEmpty()) {
                     listener.onResponse(0);
@@ -101,7 +102,7 @@ public final class TransportSamlInvalidateSessionAction
                     tokens.forEach(tuple -> invalidateTokenPair(tuple, groupedListener));
                 }
             }, listener::onFailure
-        ), containsMetadata(tokenMetadata));
+        ));
     }
 
     private void invalidateTokenPair(Tuple<UserToken, String> tokenPair, ActionListener<TokensInvalidationResult> listener) {

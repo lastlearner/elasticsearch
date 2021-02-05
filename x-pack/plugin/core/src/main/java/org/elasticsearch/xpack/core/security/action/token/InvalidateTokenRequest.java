@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.action.token;
 
@@ -51,6 +52,15 @@ public final class InvalidateTokenRequest extends ActionRequest {
     private Type tokenType;
     private String realmName;
     private String userName;
+
+    public InvalidateTokenRequest(StreamInput in) throws IOException {
+        super(in);
+        tokenString = in.readOptionalString();
+        Integer type = in.readOptionalVInt();
+        tokenType = type == null ? null : Type.values()[type];
+        realmName = in.readOptionalString();
+        userName = in.readOptionalString();
+    }
 
     public InvalidateTokenRequest() {}
 
@@ -140,15 +150,5 @@ public final class InvalidateTokenRequest extends ActionRequest {
         out.writeOptionalVInt(tokenType == null ? null : tokenType.ordinal());
         out.writeOptionalString(realmName);
         out.writeOptionalString(userName);
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        tokenString = in.readOptionalString();
-        Integer type = in.readOptionalVInt();
-        tokenType = type == null ? null : Type.values()[type];
-        realmName = in.readOptionalString();
-        userName = in.readOptionalString();
     }
 }

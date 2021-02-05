@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.common.http;
 
@@ -29,7 +30,6 @@ import java.util.Map;
 
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
-import static java.util.Collections.unmodifiableMap;
 
 public class HttpRequestTemplate implements ToXContentObject {
 
@@ -469,8 +469,8 @@ public class HttpRequestTemplate implements ToXContentObject {
         }
 
         public HttpRequestTemplate build() {
-            return new HttpRequestTemplate(host, port, scheme, method, path, unmodifiableMap(new HashMap<>(params)),
-                    unmodifiableMap(new HashMap<>(headers)), auth, body, connectionTimeout, readTimeout, proxy);
+            return new HttpRequestTemplate(host, port, scheme, method, path, Map.copyOf(params),
+                    Map.copyOf(headers), auth, body, connectionTimeout, readTimeout, proxy);
         }
 
         public Builder fromUrl(String supposedUrl) {

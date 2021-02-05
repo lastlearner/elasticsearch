@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.authc.pki;
 
@@ -36,6 +37,10 @@ public final class PkiRealmSettings {
     public static final Setting.AffixSetting<Integer> CACHE_MAX_USERS_SETTING = Setting.affixKeySetting(
         RealmSettings.realmSettingPrefix(TYPE), "cache.max_users",
         key -> Setting.intSetting(key, DEFAULT_MAX_USERS, Setting.Property.NodeScope));
+
+    public static final Setting.AffixSetting<Boolean> DELEGATION_ENABLED_SETTING = Setting.affixKeySetting(
+            RealmSettings.realmSettingPrefix(TYPE), "delegation.enabled",
+            key -> Setting.boolSetting(key, false, Setting.Property.NodeScope));
 
     public static final Setting.AffixSetting<Optional<String>> TRUST_STORE_PATH;
     public static final Setting.AffixSetting<Optional<String>> TRUST_STORE_TYPE;
@@ -72,6 +77,7 @@ public final class PkiRealmSettings {
         settings.add(USERNAME_PATTERN_SETTING);
         settings.add(CACHE_TTL_SETTING);
         settings.add(CACHE_MAX_USERS_SETTING);
+        settings.add(DELEGATION_ENABLED_SETTING);
 
         settings.add(TRUST_STORE_PATH);
         settings.add(TRUST_STORE_PASSWORD);

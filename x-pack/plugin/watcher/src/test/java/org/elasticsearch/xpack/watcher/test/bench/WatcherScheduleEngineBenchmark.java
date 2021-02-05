@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.test.bench;
 
@@ -30,8 +31,9 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.threadpool.ThreadPoolStats;
 import org.elasticsearch.xpack.core.watcher.WatcherState;
 import org.elasticsearch.xpack.core.watcher.client.WatchSourceBuilder;
-import org.elasticsearch.xpack.core.watcher.client.WatcherClient;
 import org.elasticsearch.xpack.core.watcher.history.HistoryStoreField;
+import org.elasticsearch.xpack.core.watcher.transport.actions.service.WatcherServiceRequestBuilder;
+import org.elasticsearch.xpack.core.watcher.transport.actions.stats.WatcherStatsRequestBuilder;
 import org.elasticsearch.xpack.core.watcher.watch.Watch;
 import org.elasticsearch.xpack.watcher.actions.ActionBuilders;
 import org.elasticsearch.xpack.watcher.actions.logging.LoggingLevel;
@@ -149,16 +151,15 @@ public class WatcherScheduleEngineBenchmark {
             try (Node node = new MockNode(settings, Arrays.asList(LocalStateWatcher.class))) {
                 try (Client client = node.client()) {
                     client.admin().cluster().prepareHealth().setWaitForNodes("2").get();
-                    client.admin().indices().prepareDelete(HistoryStoreField.INDEX_PREFIX_WITH_TEMPLATE + "*").get();
+                    client.admin().indices().prepareDelete(HistoryStoreField.DATA_STREAM + "*").get();
                     client.admin().cluster().prepareHealth(Watch.INDEX, "test").setWaitForYellowStatus().get();
 
                     Clock clock = node.injector().getInstance(Clock.class);
-                    WatcherClient watcherClient = node.injector().getInstance(WatcherClient.class);
-                    while (!watcherClient.prepareWatcherStats().get().getNodes().stream()
-                            .allMatch(r -> r.getWatcherState() == WatcherState.STARTED)) {
+                    while (new WatcherStatsRequestBuilder(client).get().getNodes().stream()
+                            .allMatch(r -> r.getWatcherState() == WatcherState.STARTED) == false) {
                         Thread.sleep(100);
                     }
-                    long actualLoadedWatches = watcherClient.prepareWatcherStats().get().getWatchesCount();
+                    long actualLoadedWatches = new WatcherStatsRequestBuilder(client).get().getWatchesCount();
                     if (actualLoadedWatches != numWatches) {
                         throw new IllegalStateException("Expected [" + numWatches + "] watched to be loaded, but only [" +
                                 actualLoadedWatches + "] watches were actually loaded");
@@ -195,13 +196,13 @@ public class WatcherScheduleEngineBenchmark {
                             }
                         }
                     }
-                    client.admin().indices().prepareRefresh(HistoryStoreField.INDEX_PREFIX_WITH_TEMPLATE + "*").get();
+                    client.admin().indices().prepareRefresh(HistoryStoreField.DATA_STREAM + "*").get();
                     Script script = new Script(
                             ScriptType.INLINE,
                             Script.DEFAULT_SCRIPT_LANG,
                             "doc['trigger_event.schedule.triggered_time'].value - doc['trigger_event.schedule.scheduled_time'].value",
                             emptyMap());
-                    SearchResponse searchResponse = client.prepareSearch(HistoryStoreField.INDEX_PREFIX_WITH_TEMPLATE + "*")
+                    SearchResponse searchResponse = client.prepareSearch(HistoryStoreField.DATA_STREAM + "*")
                             .setQuery(QueryBuilders.rangeQuery("trigger_event.schedule.scheduled_time").gte(startTime).lte(endTime))
                             .addAggregation(terms("state").field("state"))
                             .addAggregation(histogram("delay")
@@ -228,7 +229,7 @@ public class WatcherScheduleEngineBenchmark {
                     Percentiles percentiles = searchResponse.getAggregations().get("percentile_delay");
                     stats.setDelayPercentiles(percentiles);
                     stats.setAvgJvmUsed(jvmUsedHeapSpace);
-                    watcherClient.prepareWatchService().stop().get();
+                    new WatcherServiceRequestBuilder(client).stop().get();
                 }
             }
         }

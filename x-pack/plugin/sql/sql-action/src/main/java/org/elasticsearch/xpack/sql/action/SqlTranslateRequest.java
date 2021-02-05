@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.sql.action;
 
@@ -44,7 +45,7 @@ public class SqlTranslateRequest extends AbstractSqlQueryRequest {
 
     @Override
     public ActionRequestValidationException validate() {
-        ActionRequestValidationException validationException = null;
+        ActionRequestValidationException validationException = super.validate();
         if ((false == Strings.hasText(query()))) {
             validationException = addValidationError("query is required", validationException);
         }
@@ -58,14 +59,20 @@ public class SqlTranslateRequest extends AbstractSqlQueryRequest {
 
     public static SqlTranslateRequest fromXContent(XContentParser parser) {
         SqlTranslateRequest request = PARSER.apply(parser, null);
+        validateParams(request.params(), request.mode());
         return request;
     }
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         // This is needed just to test parsing of SqlTranslateRequest, so we can reuse SqlQuerySerialization
-        return new SqlQueryRequest(query(), params(), zoneId(), fetchSize(), requestTimeout(),
-            pageTimeout(), filter(), null, null, requestInfo()).toXContent(builder, params);
-
+        return new SqlQueryRequest(query(), params(), zoneId(), fetchSize(), requestTimeout(), pageTimeout(),
+            filter(),
+            null,
+            null,
+            requestInfo(),
+            false,
+            false,
+            null).toXContent(builder, params);
     }
 }

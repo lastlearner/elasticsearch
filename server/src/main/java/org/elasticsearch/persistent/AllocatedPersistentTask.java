@@ -1,23 +1,13 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.persistent;
 
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.elasticsearch.action.ActionListener;
@@ -37,33 +27,19 @@ import java.util.function.Predicate;
  */
 public class AllocatedPersistentTask extends CancellableTask {
 
+    private static final Logger logger = LogManager.getLogger(AllocatedPersistentTask.class);
     private final AtomicReference<State> state;
 
     private volatile String persistentTaskId;
     private volatile long allocationId;
     private volatile @Nullable Exception failure;
     private volatile PersistentTasksService persistentTasksService;
-    private volatile Logger logger;
     private volatile TaskManager taskManager;
 
     public AllocatedPersistentTask(long id, String type, String action, String description, TaskId parentTask,
                                    Map<String, String> headers) {
         super(id, type, action, description, parentTask, headers);
         this.state = new AtomicReference<>(State.STARTED);
-    }
-
-    @Override
-    public boolean shouldCancelChildrenOnCancellation() {
-        return true;
-    }
-
-    // In case of persistent tasks we always need to return: `false`
-    // because in case of persistent task the parent task isn't a task in the task manager, but in cluster state.
-    // This instructs the task manager not to try to kill this persistent task when the task manager cannot find
-    // a fake parent node id "cluster" in the cluster state
-    @Override
-    public final boolean cancelOnParentLeaving() {
-        return false;
     }
 
     @Override
@@ -77,7 +53,7 @@ public class AllocatedPersistentTask extends CancellableTask {
      * This doesn't affect the status of this allocated task.
      */
     public void updatePersistentTaskState(final PersistentTaskState state,
-                                          final ActionListener<PersistentTasksCustomMetaData.PersistentTask<?>> listener) {
+                                          final ActionListener<PersistentTasksCustomMetadata.PersistentTask<?>> listener) {
         persistentTasksService.sendUpdateStateRequest(persistentTaskId, allocationId, state, listener);
     }
 
@@ -85,10 +61,9 @@ public class AllocatedPersistentTask extends CancellableTask {
         return persistentTaskId;
     }
 
-    void init(PersistentTasksService persistentTasksService, TaskManager taskManager, Logger logger, String persistentTaskId, long
-            allocationId) {
+    protected void init(PersistentTasksService persistentTasksService, TaskManager taskManager,
+                        String persistentTaskId, long allocationId) {
         this.persistentTasksService = persistentTasksService;
-        this.logger = logger;
         this.taskManager = taskManager;
         this.persistentTaskId = persistentTaskId;
         this.allocationId = allocationId;
@@ -109,7 +84,7 @@ public class AllocatedPersistentTask extends CancellableTask {
      * @param timeout a timeout for waiting
      * @param listener the callback listener
      */
-    public void waitForPersistentTask(final Predicate<PersistentTasksCustomMetaData.PersistentTask<?>> predicate,
+    public void waitForPersistentTask(final Predicate<PersistentTasksCustomMetadata.PersistentTask<?>> predicate,
                                       final @Nullable TimeValue timeout,
                                       final PersistentTasksService.WaitForPersistentTaskListener<?> listener) {
         persistentTasksService.waitForPersistentTaskCondition(persistentTaskId, predicate, timeout, listener);
@@ -148,9 +123,9 @@ public class AllocatedPersistentTask extends CancellableTask {
                 if (prevState == State.STARTED) {
                     logger.trace("sending notification for completed task [{}] with id [{}]", getAction(), getPersistentTaskId());
                     persistentTasksService.sendCompletionRequest(getPersistentTaskId(), getAllocationId(), failure, new
-                            ActionListener<PersistentTasksCustomMetaData.PersistentTask<?>>() {
+                            ActionListener<PersistentTasksCustomMetadata.PersistentTask<?>>() {
                                 @Override
-                                public void onResponse(PersistentTasksCustomMetaData.PersistentTask<?> persistentTask) {
+                                public void onResponse(PersistentTasksCustomMetadata.PersistentTask<?> persistentTask) {
                                     logger.trace("notification for task [{}] with id [{}] was successful", getAction(),
                                             getPersistentTaskId());
                                 }

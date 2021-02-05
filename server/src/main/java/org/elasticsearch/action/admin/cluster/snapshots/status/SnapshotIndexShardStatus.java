@@ -1,27 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.action.admin.cluster.snapshots.status;
 
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.action.support.broadcast.BroadcastShardResponse;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
+import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -50,7 +39,12 @@ public class SnapshotIndexShardStatus extends BroadcastShardResponse implements 
 
     private String failure;
 
-    private SnapshotIndexShardStatus() {
+    public SnapshotIndexShardStatus(StreamInput in) throws IOException {
+        super(in);
+        stage = SnapshotIndexShardStage.fromValue(in.readByte());
+        stats = new SnapshotStats(in);
+        nodeId = in.readOptionalString();
+        failure = in.readOptionalString();
     }
 
     SnapshotIndexShardStatus(ShardId shardId, SnapshotIndexShardStage stage) {
@@ -127,13 +121,6 @@ public class SnapshotIndexShardStatus extends BroadcastShardResponse implements 
         return failure;
     }
 
-
-    public static SnapshotIndexShardStatus readShardSnapshotStatus(StreamInput in) throws IOException {
-        SnapshotIndexShardStatus shardStatus = new SnapshotIndexShardStatus();
-        shardStatus.readFrom(in);
-        return shardStatus;
-    }
-
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         super.writeTo(out);
@@ -141,15 +128,6 @@ public class SnapshotIndexShardStatus extends BroadcastShardResponse implements 
         stats.writeTo(out);
         out.writeOptionalString(nodeId);
         out.writeOptionalString(failure);
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        stage = SnapshotIndexShardStage.fromValue(in.readByte());
-        stats = SnapshotStats.readSnapshotStats(in);
-        nodeId = in.readOptionalString();
-        failure = in.readOptionalString();
     }
 
     static final class Fields {
@@ -209,13 +187,13 @@ public class SnapshotIndexShardStatus extends BroadcastShardResponse implements 
                 throw new ElasticsearchParseException(
                     "failed to parse snapshot index shard status [{}], expected numeric shard id but got [{}]", indexId, shardName);
             }
-            ShardId shardId = new ShardId(new Index(indexId, IndexMetaData.INDEX_UUID_NA_VALUE), shard);
+            ShardId shardId = new ShardId(new Index(indexId, IndexMetadata.INDEX_UUID_NA_VALUE), shard);
             return innerParser.parse(p, shardId);
         };
     }
 
     public static SnapshotIndexShardStatus fromXContent(XContentParser parser, String indexId) throws IOException {
-        XContentParserUtils.ensureExpectedToken(XContentParser.Token.FIELD_NAME, parser.currentToken(), parser::getTokenLocation);
+        XContentParserUtils.ensureExpectedToken(XContentParser.Token.FIELD_NAME, parser.currentToken(), parser);
         return PARSER.parse(parser, indexId, parser.currentName());
     }
 

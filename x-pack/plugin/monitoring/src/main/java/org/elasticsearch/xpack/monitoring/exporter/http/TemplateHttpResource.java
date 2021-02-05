@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.monitoring.exporter.http;
 
@@ -12,18 +13,25 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.cluster.metadata.IndexTemplateMetadata;
 import org.elasticsearch.common.Nullable;
+import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
+import org.elasticsearch.common.xcontent.NamedXContentRegistry;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentFactory;
+import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.xpack.core.monitoring.exporter.MonitoringTemplateUtils;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Supplier;
-
-import static org.elasticsearch.rest.BaseRestHandler.INCLUDE_TYPE_NAME_PARAMETER;
 
 /**
  * {@code TemplateHttpResource}s allow the checking and uploading of templates to a remote cluster.
@@ -86,10 +94,9 @@ public class TemplateHttpResource extends PublishableHttpResource {
      * Publish the missing {@linkplain #templateName template}.
      */
     @Override
-    protected void doPublish(final RestClient client, final ActionListener<Boolean> listener) {
-        Map<String, String> parameters = Collections.singletonMap(INCLUDE_TYPE_NAME_PARAMETER, "true");
+    protected void doPublish(final RestClient client, final ActionListener<ResourcePublishResult> listener) {
         putResource(client, listener, logger,
-                    "/_template", templateName, parameters, this::templateToHttpEntity, "monitoring template",
+                    "/_template", templateName, Collections.emptyMap(), this::templateToHttpEntity, "monitoring template",
                     resourceOwnerName, "monitoring cluster");
     }
 
@@ -98,8 +105,17 @@ public class TemplateHttpResource extends PublishableHttpResource {
      *
      * @return Never {@code null}.
      */
-    HttpEntity templateToHttpEntity() {
-        return new StringEntity(template.get(), ContentType.APPLICATION_JSON);
+     HttpEntity templateToHttpEntity() {
+        // the internal representation of a template has type nested under mappings.
+        // this uses xContent to help remove the type before sending to the remote cluster
+        try (XContentParser parser = XContentFactory.xContent(XContentType.JSON)
+            .createParser(NamedXContentRegistry.EMPTY, LoggingDeprecationHandler.INSTANCE, template.get())) {
+            XContentBuilder builder = JsonXContent.contentBuilder();
+            IndexTemplateMetadata.Builder.removeType(IndexTemplateMetadata.Builder.fromXContent(parser, templateName), builder);
+            return new StringEntity(BytesReference.bytes(builder).utf8ToString(), ContentType.APPLICATION_JSON);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Cannot serialize template [" + templateName + "] for monitoring export", ex);
+        }
     }
 
 }

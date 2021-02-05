@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.sql.proto;
 
@@ -119,7 +120,7 @@ public class ColumnInfo implements ToXContentObject {
             return false;
         }
         ColumnInfo that = (ColumnInfo) o;
-        return displaySize == that.displaySize &&
+        return Objects.equals(displaySize, that.displaySize) &&
             Objects.equals(table, that.table) &&
             Objects.equals(name, that.name) &&
             Objects.equals(esType, that.esType);

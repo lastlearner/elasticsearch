@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.job.process.autodetect.writer;
 
@@ -122,10 +123,10 @@ public abstract class AbstractDataToProcessWriter implements DataToProcessWriter
 
     /**
      * Tokenize the field that has been configured for categorization, and store the resulting list of tokens in CSV
-     * format in the appropriate field of the record to be sent to the analytics.
+     * format in the appropriate field of the record to be sent to the process.
      * @param categorizationAnalyzer   The analyzer to use to convert the categorization field to a list of tokens
      * @param categorizationFieldValue The value of the categorization field to be tokenized
-     * @param record                   The record to be sent to the analytics
+     * @param record                   The record to be sent to the process
      */
     protected void tokenizeForCategorization(CategorizationAnalyzer categorizationAnalyzer, String categorizationFieldValue,
                                              String[] record) {

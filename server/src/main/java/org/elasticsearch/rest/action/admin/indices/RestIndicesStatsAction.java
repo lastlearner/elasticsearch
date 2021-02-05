@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.rest.action.admin.indices;
@@ -25,15 +14,14 @@ import org.elasticsearch.action.admin.indices.stats.IndicesStatsRequest;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.action.RestToXContentListener;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -43,17 +31,24 @@ import java.util.function.Consumer;
 import static org.elasticsearch.rest.RestRequest.Method.GET;
 
 public class RestIndicesStatsAction extends BaseRestHandler {
-    public RestIndicesStatsAction(Settings settings, RestController controller) {
-        super(settings);
-        controller.registerHandler(GET, "/_stats", this);
-        controller.registerHandler(GET, "/_stats/{metric}", this);
-        controller.registerHandler(GET, "/{index}/_stats", this);
-        controller.registerHandler(GET, "/{index}/_stats/{metric}", this);
+
+    @Override
+    public List<Route> routes() {
+        return List.of(
+            new Route(GET, "/_stats"),
+            new Route(GET, "/_stats/{metric}"),
+            new Route(GET, "/{index}/_stats"),
+            new Route(GET, "/{index}/_stats/{metric}"));
     }
 
     @Override
     public String getName() {
         return "indices_stats_action";
+    }
+
+    @Override
+    public boolean allowSystemIndexAccessByDefault() {
+        return true;
     }
 
     static final Map<String, Consumer<IndicesStatsRequest>> METRICS;
@@ -69,9 +64,13 @@ public class RestIndicesStatsAction extends BaseRestHandler {
     @Override
     public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
         IndicesStatsRequest indicesStatsRequest = new IndicesStatsRequest();
-        indicesStatsRequest.indicesOptions(IndicesOptions.fromRequest(request, indicesStatsRequest.indicesOptions()));
+        boolean forbidClosedIndices = request.paramAsBoolean("forbid_closed_indices", true);
+        IndicesOptions defaultIndicesOption = forbidClosedIndices ? indicesStatsRequest.indicesOptions()
+            : IndicesOptions.strictExpandOpen();
+        assert indicesStatsRequest.indicesOptions() == IndicesOptions.strictExpandOpenAndForbidClosed() : "IndicesStats default indices " +
+            "options changed";
+        indicesStatsRequest.indicesOptions(IndicesOptions.fromRequest(request, defaultIndicesOption));
         indicesStatsRequest.indices(Strings.splitStringByCommaToArray(request.param("index")));
-        indicesStatsRequest.types(Strings.splitStringByCommaToArray(request.param("types")));
 
         Set<String> metrics = Strings.tokenizeByCommaToSet(request.param("metric", "_all"));
         // short cut, if no metrics have been specified in URI
@@ -96,17 +95,13 @@ public class RestIndicesStatsAction extends BaseRestHandler {
                 }
             }
 
-            if (!invalidMetrics.isEmpty()) {
+            if (invalidMetrics.isEmpty() == false) {
                 throw new IllegalArgumentException(unrecognized(request, invalidMetrics, METRICS.keySet(), "metric"));
             }
         }
 
         if (request.hasParam("groups")) {
             indicesStatsRequest.groups(Strings.splitStringByCommaToArray(request.param("groups")));
-        }
-
-        if (request.hasParam("types")) {
-            indicesStatsRequest.types(Strings.splitStringByCommaToArray(request.param("types")));
         }
 
         if (indicesStatsRequest.completion() && (request.hasParam("fields") || request.hasParam("completion_fields"))) {
@@ -121,7 +116,7 @@ public class RestIndicesStatsAction extends BaseRestHandler {
 
         if (indicesStatsRequest.segments()) {
             indicesStatsRequest.includeSegmentFileSizes(request.paramAsBoolean("include_segment_file_sizes", false));
-            indicesStatsRequest.includeSegmentFileSizes(request.paramAsBoolean("include_unloaded_segments", false));
+            indicesStatsRequest.includeUnloadedSegments(request.paramAsBoolean("include_unloaded_segments", false));
         }
 
         return channel -> client.admin().indices().stats(indicesStatsRequest, new RestToXContentListener<>(channel));

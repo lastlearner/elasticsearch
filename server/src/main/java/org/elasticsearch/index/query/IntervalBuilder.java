@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.index.query;
@@ -26,20 +15,21 @@ import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute;
 import org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.Term;
+import org.apache.lucene.queries.intervals.IntervalMatchesIterator;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.MatchesIterator;
-import org.apache.lucene.search.intervals.IntervalIterator;
-import org.apache.lucene.search.intervals.Intervals;
-import org.apache.lucene.search.intervals.IntervalsSource;
+import org.apache.lucene.search.QueryVisitor;
+import org.apache.lucene.queries.intervals.IntervalIterator;
+import org.apache.lucene.queries.intervals.Intervals;
+import org.apache.lucene.queries.intervals.IntervalsSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.graph.GraphTokenStreamFiniteStrings;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Constructs an IntervalsSource based on analyzed text
@@ -95,7 +85,7 @@ public class IntervalBuilder {
         // formulate a single term, boolean, or phrase.
 
         if (numTokens == 0) {
-            return null;
+            return NO_INTERVALS;
         } else if (numTokens == 1) {
             // single term
             return analyzeTerm(stream);
@@ -230,7 +220,7 @@ public class IntervalBuilder {
         return clauses;
     }
 
-    private static final IntervalsSource NO_INTERVALS = new IntervalsSource() {
+    static final IntervalsSource NO_INTERVALS = new IntervalsSource() {
 
         @Override
         public IntervalIterator intervals(String field, LeafReaderContext ctx) {
@@ -283,9 +273,12 @@ public class IntervalBuilder {
         }
 
         @Override
-        public MatchesIterator matches(String field, LeafReaderContext ctx, int doc) {
+        public IntervalMatchesIterator matches(String field, LeafReaderContext ctx, int doc) {
             return null;
         }
+
+        @Override
+        public void visit(String field, QueryVisitor visitor) {}
 
         @Override
         public int minExtent() {
@@ -293,8 +286,8 @@ public class IntervalBuilder {
         }
 
         @Override
-        public void extractTerms(String field, Set<Term> terms) {
-
+        public Collection<IntervalsSource> pullUpDisjunctions() {
+            return Collections.emptyList();
         }
 
         @Override

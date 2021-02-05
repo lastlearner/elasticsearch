@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.watcher.client;
 
@@ -101,7 +102,7 @@ public class WatchSourceBuilder implements ToXContentObject {
     }
 
     public WatchSourceBuilder addAction(String id, TimeValue throttlePeriod, Transform transform, Action action) {
-        actions.put(id, new TransformedAction(id, action, throttlePeriod, null, transform));
+        actions.put(id, new TransformedAction(id, action, throttlePeriod, null, transform, null));
         return this;
     }
 
@@ -111,7 +112,13 @@ public class WatchSourceBuilder implements ToXContentObject {
     }
 
     public WatchSourceBuilder addAction(String id, TimeValue throttlePeriod, Condition condition, Transform transform, Action action) {
-        actions.put(id, new TransformedAction(id, action, throttlePeriod, condition, transform));
+        actions.put(id, new TransformedAction(id, action, throttlePeriod, condition, transform, null));
+        return this;
+    }
+
+    public WatchSourceBuilder addAction(String id, TimeValue throttlePeriod, Condition condition, Transform transform, String path,
+                                        Action action) {
+        actions.put(id, new TransformedAction(id, action, throttlePeriod, condition, transform, path));
         return this;
     }
 
@@ -186,16 +193,18 @@ public class WatchSourceBuilder implements ToXContentObject {
     static class TransformedAction implements ToXContentObject {
 
         private final Action action;
+        @Nullable private String path;
         @Nullable private final TimeValue throttlePeriod;
         @Nullable private final Condition condition;
         @Nullable private final Transform transform;
 
         TransformedAction(String id, Action action, @Nullable TimeValue throttlePeriod,
-                          @Nullable Condition condition, @Nullable Transform transform) {
+                          @Nullable Condition condition, @Nullable Transform transform, @Nullable String path) {
             this.throttlePeriod = throttlePeriod;
             this.condition = condition;
             this.transform = transform;
             this.action = action;
+            this.path = path;
         }
 
         @Override
@@ -214,6 +223,9 @@ public class WatchSourceBuilder implements ToXContentObject {
                 builder.startObject(Transform.TRANSFORM.getPreferredName())
                         .field(transform.type(), transform, params)
                         .endObject();
+            }
+            if (path != null) {
+                builder.field("foreach", path);
             }
             builder.field(action.type(), action, params);
             return builder.endObject();

@@ -1,27 +1,15 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.repositories.s3;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.Protocol;
-import org.elasticsearch.cluster.metadata.RepositoryMetaData;
 import org.elasticsearch.common.settings.SecureSetting;
 import org.elasticsearch.common.settings.SecureString;
 import org.elasticsearch.common.settings.Setting;
@@ -35,11 +23,22 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * A container for settings used to create an S3 client.
  */
 final class S3ClientSettings {
+
+    static {
+        // Make sure repository plugin class is loaded before this class is used to trigger static initializer for that class which applies
+        // necessary Jackson workaround
+        try {
+            Class.forName("org.elasticsearch.repositories.s3.S3RepositoryPlugin");
+        } catch (ClassNotFoundException e) {
+            throw new AssertionError(e);
+        }
+    }
 
     // prefix for s3 client settings
     private static final String PREFIX = "s3.client.";
@@ -95,6 +94,22 @@ final class S3ClientSettings {
     static final Setting.AffixSetting<Boolean> USE_THROTTLE_RETRIES_SETTING = Setting.affixKeySetting(PREFIX, "use_throttle_retries",
         key -> Setting.boolSetting(key, ClientConfiguration.DEFAULT_THROTTLE_RETRIES, Property.NodeScope));
 
+    /** Whether the s3 client should use path style access. */
+    static final Setting.AffixSetting<Boolean> USE_PATH_STYLE_ACCESS = Setting.affixKeySetting(PREFIX, "path_style_access",
+        key -> Setting.boolSetting(key, false, Property.NodeScope));
+
+    /** Whether chunked encoding should be disabled or not (Default is false). */
+    static final Setting.AffixSetting<Boolean> DISABLE_CHUNKED_ENCODING = Setting.affixKeySetting(PREFIX, "disable_chunked_encoding",
+        key -> Setting.boolSetting(key, false, Property.NodeScope));
+
+    /** An override for the s3 region to use for signing requests. */
+    static final Setting.AffixSetting<String> REGION = Setting.affixKeySetting(PREFIX, "region",
+        key -> new Setting<>(key, "", Function.identity(), Property.NodeScope));
+
+    /** An override for the signer to use. */
+    static final Setting.AffixSetting<String> SIGNER_OVERRIDE = Setting.affixKeySetting(PREFIX, "signer_override",
+        key -> new Setting<>(key, "", Function.identity(), Property.NodeScope));
+
     /** Credentials to authenticate with s3. */
     final S3BasicCredentials credentials;
 
@@ -127,9 +142,22 @@ final class S3ClientSettings {
     /** Whether the s3 client should use an exponential backoff retry policy. */
     final boolean throttleRetries;
 
+    /** Whether the s3 client should use path style access. */
+    final boolean pathStyleAccess;
+
+    /** Whether chunked encoding should be disabled or not. */
+    final boolean disableChunkedEncoding;
+
+    /** Region to use for signing requests or empty string to use default. */
+    final String region;
+
+    /** Signer override to use or empty string to use default. */
+    final String signerOverride;
+
     private S3ClientSettings(S3BasicCredentials credentials, String endpoint, Protocol protocol,
                              String proxyHost, int proxyPort, String proxyUsername, String proxyPassword,
-                             int readTimeoutMillis, int maxRetries, boolean throttleRetries) {
+                             int readTimeoutMillis, int maxRetries, boolean throttleRetries,
+                             boolean pathStyleAccess, boolean disableChunkedEncoding, String region, String signerOverride) {
         this.credentials = credentials;
         this.endpoint = endpoint;
         this.protocol = protocol;
@@ -140,19 +168,22 @@ final class S3ClientSettings {
         this.readTimeoutMillis = readTimeoutMillis;
         this.maxRetries = maxRetries;
         this.throttleRetries = throttleRetries;
+        this.pathStyleAccess = pathStyleAccess;
+        this.disableChunkedEncoding = disableChunkedEncoding;
+        this.region = region;
+        this.signerOverride = signerOverride;
     }
 
     /**
      * Overrides the settings in this instance with settings found in repository metadata.
      *
-     * @param metadata RepositoryMetaData
+     * @param repositorySettings found in repository metadata
      * @return S3ClientSettings
      */
-    S3ClientSettings refine(RepositoryMetaData metadata) {
-        final Settings repoSettings = metadata.settings();
+    S3ClientSettings refine(Settings repositorySettings) {
         // Normalize settings to placeholder client settings prefix so that we can use the affix settings directly
         final Settings normalizedSettings =
-            Settings.builder().put(repoSettings).normalizePrefix(PREFIX + PLACEHOLDER_CLIENT + '.').build();
+            Settings.builder().put(repositorySettings).normalizePrefix(PREFIX + PLACEHOLDER_CLIENT + '.').build();
         final String newEndpoint = getRepoSettingOrDefault(ENDPOINT_SETTING, normalizedSettings, endpoint);
 
         final Protocol newProtocol = getRepoSettingOrDefault(PROTOCOL_SETTING, normalizedSettings, protocol);
@@ -162,19 +193,21 @@ final class S3ClientSettings {
             getRepoSettingOrDefault(READ_TIMEOUT_SETTING, normalizedSettings, TimeValue.timeValueMillis(readTimeoutMillis)).millis());
         final int newMaxRetries = getRepoSettingOrDefault(MAX_RETRIES_SETTING, normalizedSettings, maxRetries);
         final boolean newThrottleRetries = getRepoSettingOrDefault(USE_THROTTLE_RETRIES_SETTING, normalizedSettings, throttleRetries);
-        final S3BasicCredentials newCredentials;
-        if (checkDeprecatedCredentials(repoSettings)) {
-            newCredentials = loadDeprecatedCredentials(repoSettings);
-        } else {
-            newCredentials = credentials;
-        }
+        final boolean newPathStyleAccess = getRepoSettingOrDefault(USE_PATH_STYLE_ACCESS, normalizedSettings, pathStyleAccess);
+        final boolean newDisableChunkedEncoding = getRepoSettingOrDefault(
+            DISABLE_CHUNKED_ENCODING, normalizedSettings, disableChunkedEncoding);
+        final String newRegion = getRepoSettingOrDefault(REGION, normalizedSettings, region);
+        final String newSignerOverride = getRepoSettingOrDefault(SIGNER_OVERRIDE, normalizedSettings, signerOverride);
         if (Objects.equals(endpoint, newEndpoint) && protocol == newProtocol && Objects.equals(proxyHost, newProxyHost)
             && proxyPort == newProxyPort && newReadTimeoutMillis == readTimeoutMillis && maxRetries == newMaxRetries
-            && newThrottleRetries == throttleRetries && Objects.equals(credentials, newCredentials)) {
+            && newThrottleRetries == throttleRetries
+            && newPathStyleAccess == pathStyleAccess
+            && newDisableChunkedEncoding == disableChunkedEncoding
+            && Objects.equals(region, newRegion) && Objects.equals(signerOverride, newSignerOverride)) {
             return this;
         }
         return new S3ClientSettings(
-            newCredentials,
+            credentials,
             newEndpoint,
             newProtocol,
             newProxyHost,
@@ -183,7 +216,11 @@ final class S3ClientSettings {
             proxyPassword,
             newReadTimeoutMillis,
             newMaxRetries,
-            newThrottleRetries
+            newThrottleRetries,
+            newPathStyleAccess,
+            newDisableChunkedEncoding,
+            newRegion,
+            newSignerOverride
         );
     }
 
@@ -204,29 +241,6 @@ final class S3ClientSettings {
             clients.put("default", getClientSettings(settings, "default"));
         }
         return Collections.unmodifiableMap(clients);
-    }
-
-    static boolean checkDeprecatedCredentials(Settings repositorySettings) {
-        if (S3Repository.ACCESS_KEY_SETTING.exists(repositorySettings)) {
-            if (S3Repository.SECRET_KEY_SETTING.exists(repositorySettings) == false) {
-                throw new IllegalArgumentException("Repository setting [" + S3Repository.ACCESS_KEY_SETTING.getKey()
-                        + " must be accompanied by setting [" + S3Repository.SECRET_KEY_SETTING.getKey() + "]");
-            }
-            return true;
-        } else if (S3Repository.SECRET_KEY_SETTING.exists(repositorySettings)) {
-            throw new IllegalArgumentException("Repository setting [" + S3Repository.SECRET_KEY_SETTING.getKey()
-                    + " must be accompanied by setting [" + S3Repository.ACCESS_KEY_SETTING.getKey() + "]");
-        }
-        return false;
-    }
-
-    // backcompat for reading keys out of repository settings (clusterState)
-    private static S3BasicCredentials loadDeprecatedCredentials(Settings repositorySettings) {
-        assert checkDeprecatedCredentials(repositorySettings);
-        try (SecureString key = S3Repository.ACCESS_KEY_SETTING.get(repositorySettings);
-                SecureString secret = S3Repository.SECRET_KEY_SETTING.get(repositorySettings)) {
-            return new S3BasicCredentials(key.toString(), secret.toString());
-        }
     }
 
     private static S3BasicCredentials loadCredentials(Settings settings, String clientName) {
@@ -270,7 +284,11 @@ final class S3ClientSettings {
                 proxyPassword.toString(),
                 Math.toIntExact(getConfigValue(settings, clientName, READ_TIMEOUT_SETTING).millis()),
                 getConfigValue(settings, clientName, MAX_RETRIES_SETTING),
-                getConfigValue(settings, clientName, USE_THROTTLE_RETRIES_SETTING)
+                getConfigValue(settings, clientName, USE_THROTTLE_RETRIES_SETTING),
+                getConfigValue(settings, clientName, USE_PATH_STYLE_ACCESS),
+                getConfigValue(settings, clientName, DISABLE_CHUNKED_ENCODING),
+                getConfigValue(settings, clientName, REGION),
+                getConfigValue(settings, clientName, SIGNER_OVERRIDE)
             );
         }
     }
@@ -293,13 +311,16 @@ final class S3ClientSettings {
             protocol == that.protocol &&
             Objects.equals(proxyHost, that.proxyHost) &&
             Objects.equals(proxyUsername, that.proxyUsername) &&
-            Objects.equals(proxyPassword, that.proxyPassword);
+            Objects.equals(proxyPassword, that.proxyPassword) &&
+            Objects.equals(disableChunkedEncoding, that.disableChunkedEncoding) &&
+            Objects.equals(region, that.region) &&
+            Objects.equals(signerOverride, that.signerOverride);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(credentials, endpoint, protocol, proxyHost, proxyPort, proxyUsername, proxyPassword,
-            readTimeoutMillis, maxRetries, throttleRetries);
+            readTimeoutMillis, maxRetries, throttleRetries, disableChunkedEncoding, region, signerOverride);
     }
 
     private static <T> T getConfigValue(Settings settings, String clientName,

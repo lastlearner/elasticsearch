@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.security.action;
@@ -55,6 +56,24 @@ public class CreateApiKeyRequestBuilderTests extends ESTestCase {
             assertThat(rd.getIndicesPrivileges(),
                     arrayContainingInAnyOrder(indicesPrivileges));
         }
+        if (withExpiration) {
+            assertThat(request.getExpiration(), equalTo(TimeValue.parseTimeValue("1d", "expiration")));
+        }
+    }
+
+    public void testParserAndCreateApiRequestBuilderWithNullOrEmptyRoleDescriptors() throws IOException {
+        boolean withExpiration = randomBoolean();
+        boolean noRoleDescriptorsField = randomBoolean();
+        final String json = "{ \"name\" : \"my-api-key\""
+                + ((withExpiration) ? ", \"expiration\": \"1d\"" : "")
+                + ((noRoleDescriptorsField) ? "" : ", \"role_descriptors\": {}")
+                + "}";
+        final BytesArray source = new BytesArray(json);
+        final NodeClient mockClient = mock(NodeClient.class);
+        final CreateApiKeyRequest request = new CreateApiKeyRequestBuilder(mockClient).source(source, XContentType.JSON).request();
+        final List<RoleDescriptor> actualRoleDescriptors = request.getRoleDescriptors();
+        assertThat(request.getName(), equalTo("my-api-key"));
+        assertThat(actualRoleDescriptors.size(), is(0));
         if (withExpiration) {
             assertThat(request.getExpiration(), equalTo(TimeValue.parseTimeValue("1d", "expiration")));
         }

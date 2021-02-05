@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.sql.expression.function.scalar.datetime;
 
@@ -9,13 +10,15 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 
 import java.io.IOException;
+import java.time.OffsetTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoField;
+import java.time.temporal.WeekFields;
 import java.util.Objects;
 
 public class DateTimeProcessor extends BaseDateTimeProcessor {
-    
+
     public enum DateTimeExtractor {
         DAY_OF_MONTH(ChronoField.DAY_OF_MONTH),
         ISO_DAY_OF_WEEK(ChronoField.DAY_OF_WEEK),
@@ -35,14 +38,22 @@ public class DateTimeProcessor extends BaseDateTimeProcessor {
         }
 
         public int extract(ZonedDateTime dt) {
-            return dt.get(field);
+            if (field == ChronoField.ALIGNED_WEEK_OF_YEAR) {
+                return dt.get(WeekFields.ISO.weekOfWeekBasedYear());
+            } else {
+                return dt.get(field);
+            }
+        }
+
+        public int extract(OffsetTime time) {
+            return time.get(field);
         }
 
         public ChronoField chronoField() {
             return field;
         }
     }
-    
+
     public static final String NAME = "dt";
     private final DateTimeExtractor extractor;
 
@@ -58,7 +69,6 @@ public class DateTimeProcessor extends BaseDateTimeProcessor {
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         out.writeEnum(extractor);
     }
 

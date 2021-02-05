@@ -50,10 +50,11 @@
                 )
                 $/
 ---
-"Test cat indices output for closed index (pre 7.1.0)":
+"Test cat indices output for closed index (pre 7.2.0)":
   - skip:
-      version: "7.1.0 - "
-      reason:  "closed indices are replicated starting version 7.1.0"
+      version: "7.2.0 - "
+      reason:  "closed indices are replicated starting version 7.2.0"
+      features: ["allowed_warnings"]
 
   - do:
       indices.create:
@@ -66,6 +67,8 @@
   - do:
       indices.close:
         index: index-2
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
   - is_true: acknowledged
 
   - do:
@@ -93,8 +96,9 @@
 ---
 "Test cat indices output for closed index":
   - skip:
-      version: " - 7.0.99"
-      reason:  "closed indices are replicated starting version 7.1.0"
+      version: " - 7.1.99"
+      reason:  "closed indices are replicated starting version 7.2.0"
+      features: ["allowed_warnings"]
 
   - do:
       indices.create:
@@ -107,6 +111,8 @@
   - do:
       indices.close:
         index: index-2
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
   - is_true: acknowledged
 
   - do:
@@ -221,6 +227,8 @@
 
 ---
 "Test cat indices sort":
+  - skip:
+      features: ["allowed_warnings"]
 
   - do:
       indices.create:
@@ -249,6 +257,8 @@
   - do:
       indices.close:
         index: bar
+      allowed_warnings:
+        - "the default value for the ?wait_for_active_shards parameter will change from '0' to 'index-setting' in version 8; specify '?wait_for_active_shards=index-setting' to adopt the future default behaviour, or '?wait_for_active_shards=0' to preserve today's behaviour"
 
   - do:
       cat.indices:
@@ -273,3 +283,22 @@
                open \s+ foo\n
                open \s+ baz\n
             $/
+
+---
+"Test cat indices with invalid health parameter":
+  - skip:
+      version: " - 7.7.1"
+      reason:  "fixed in 7.7.1+"
+
+  - do:
+      indices.create:
+        index: foo
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      catch: bad_request
+      cat.indices:
+        health: "invalid-health-value"

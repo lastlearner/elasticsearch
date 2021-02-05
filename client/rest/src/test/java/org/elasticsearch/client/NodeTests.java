@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client;
@@ -23,10 +12,12 @@ import org.apache.http.HttpHost;
 import org.elasticsearch.client.Node.Roles;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 import static java.util.Collections.singleton;
 import static java.util.Collections.singletonList;
@@ -43,8 +34,8 @@ public class NodeTests extends RestClientTestCase {
         assertEquals("[host=http://1]", new Node(new HttpHost("1")).toString());
         assertEquals("[host=http://1, attributes={foo=[bar], baz=[bort, zoom]}]",
                 new Node(new HttpHost("1"), null, null, null, null, attributes).toString());
-        assertEquals("[host=http://1, roles=mdi]", new Node(new HttpHost("1"),
-                null, null, null, new Roles(true, true, true), null).toString());
+        assertEquals("[host=http://1, roles=data,ingest,master]", new Node(new HttpHost("1"),
+                null, null, null, new Roles(new TreeSet<>(Arrays.asList("master", "data", "ingest"))), null).toString());
         assertEquals("[host=http://1, version=ver]", new Node(new HttpHost("1"),
                 null, null, "ver", null, null).toString());
         assertEquals("[host=http://1, name=nam]", new Node(new HttpHost("1"),
@@ -52,10 +43,10 @@ public class NodeTests extends RestClientTestCase {
         assertEquals("[host=http://1, bound=[http://1, http://2]]", new Node(new HttpHost("1"),
                 new HashSet<>(Arrays.asList(new HttpHost("1"), new HttpHost("2"))), null, null, null, null).toString());
         assertEquals(
-                "[host=http://1, bound=[http://1, http://2], name=nam, version=ver, roles=m, attributes={foo=[bar], baz=[bort, zoom]}]",
+                "[host=http://1, bound=[http://1, http://2], "
+                    + "name=nam, version=ver, roles=master, attributes={foo=[bar], baz=[bort, zoom]}]",
                 new Node(new HttpHost("1"), new HashSet<>(Arrays.asList(new HttpHost("1"), new HttpHost("2"))),
-                    "nam", "ver", new Roles(true, false, false), attributes).toString());
-
+                    "nam", "ver", new Roles(Collections.singleton("master")), attributes).toString());
     }
 
     public void testEqualsAndHashCode() {
@@ -64,7 +55,7 @@ public class NodeTests extends RestClientTestCase {
                 randomBoolean() ? null : singleton(host),
                 randomBoolean() ? null : randomAsciiAlphanumOfLength(5),
                 randomBoolean() ? null : randomAsciiAlphanumOfLength(5),
-                randomBoolean() ? null : new Roles(true, true, true),
+                randomBoolean() ? null : new Roles(new TreeSet<>(Arrays.asList("master", "data", "ingest"))),
                 randomBoolean() ? null : singletonMap("foo", singletonList("bar")));
         assertFalse(node.equals(null));
         assertTrue(node.equals(node));
@@ -82,7 +73,7 @@ public class NodeTests extends RestClientTestCase {
         assertFalse(node.equals(new Node(host, node.getBoundHosts(), node.getName(),
                 node.getVersion() + "changed", node.getRoles(), node.getAttributes())));
         assertFalse(node.equals(new Node(host, node.getBoundHosts(), node.getName(),
-                node.getVersion(), new Roles(false, false, false), node.getAttributes())));
+                node.getVersion(), new Roles(Collections.emptySet()), node.getAttributes())));
                 assertFalse(node.equals(new Node(host, node.getBoundHosts(), node.getName(),
                 node.getVersion(), node.getRoles(), singletonMap("bort", singletonList("bing")))));
     }

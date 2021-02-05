@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.xcontent;
@@ -22,9 +11,10 @@ package org.elasticsearch.common.xcontent;
 import com.fasterxml.jackson.core.JsonGenerationException;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParseException;
+
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Constants;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
+import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesArray;
@@ -74,10 +64,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
@@ -525,11 +517,11 @@ public abstract class BaseXContentTestCase extends ESTestCase {
         assertResult("{'date':null}", () -> builder().startObject().timeField("date", (LocalDateTime) null).endObject());
         assertResult("{'date':null}", () -> builder().startObject().field("date").timeValue((LocalDateTime) null).endObject());
         assertResult("{'date':null}", () -> builder().startObject().field("date", (LocalDateTime) null).endObject());
-        assertResult("{'d1':'2016-01-01T00:00:00.000'}",
+        assertResult("{'d1':'2016-01-01T00:00:00.000Z'}",
             () -> builder().startObject().timeField("d1", d1.toLocalDateTime()).endObject());
-        assertResult("{'d1':'2016-01-01T00:00:00.000'}",
+        assertResult("{'d1':'2016-01-01T00:00:00.000Z'}",
             () -> builder().startObject().field("d1").timeValue(d1.toLocalDateTime()).endObject());
-        assertResult("{'d1':'2016-01-01T00:00:00.000'}", () -> builder().startObject().field("d1", d1.toLocalDateTime()).endObject());
+        assertResult("{'d1':'2016-01-01T00:00:00.000Z'}", () -> builder().startObject().field("d1", d1.toLocalDateTime()).endObject());
 
         // LocalDate (no time, no time zone)
         assertResult("{'date':null}", () -> builder().startObject().timeField("date", (LocalDate) null).endObject());
@@ -653,7 +645,7 @@ public abstract class BaseXContentTestCase extends ESTestCase {
         objects.put("{'objects':['a','b','c']}", new Object[]{new Text("a"), new Text(new BytesArray("b")), new Text("c")});
         objects.put("{'objects':null}", null);
         objects.put("{'objects':[null,null,null]}", new Object[]{null, null, null});
-        objects.put("{'objects':['OPEN','CLOSE']}", IndexMetaData.State.values());
+        objects.put("{'objects':['OPEN','CLOSE']}", IndexMetadata.State.values());
         objects.put("{'objects':[{'f1':'v1'},{'f2':'v2'}]}", new Object[]{singletonMap("f1", "v1"), singletonMap("f2", "v2")});
         objects.put("{'objects':[[1,2,3],[4,5]]}", new Object[]{Arrays.asList(1, 2, 3), Arrays.asList(4, 5)});
 
@@ -699,7 +691,7 @@ public abstract class BaseXContentTestCase extends ESTestCase {
         object.put("{'object':'a'}", new Text("a"));
         object.put("{'object':'b'}", new Text(new BytesArray("b")));
         object.put("{'object':null}", null);
-        object.put("{'object':'OPEN'}", IndexMetaData.State.OPEN);
+        object.put("{'object':'OPEN'}", IndexMetadata.State.OPEN);
         object.put("{'object':'NM'}", DistanceUnit.NAUTICALMILES);
         object.put("{'object':{'f1':'v1'}}", singletonMap("f1", "v1"));
         object.put("{'object':{'f1':{'f2':'v2'}}}", singletonMap("f1", singletonMap("f2", "v2")));
@@ -752,7 +744,7 @@ public abstract class BaseXContentTestCase extends ESTestCase {
                     .field("xcontent", xcontent0)
                 .endObject());
 
-        ToXContent xcontent1 = (builder, params) -> {
+        ToXContentObject xcontent1 = (builder, params) -> {
             builder.startObject();
             builder.field("field", "value");
             builder.startObject("foo");
@@ -762,7 +754,7 @@ public abstract class BaseXContentTestCase extends ESTestCase {
             return builder;
         };
 
-        ToXContent xcontent2 = (builder, params) -> {
+        ToXContentObject xcontent2 = (builder, params) -> {
             builder.startObject();
             builder.field("root", xcontent0);
             builder.array("childs", xcontent0, xcontent1);
@@ -945,11 +937,18 @@ public abstract class BaseXContentTestCase extends ESTestCase {
             assertNull(parser.nextToken());
         }
 
-        os = new ByteArrayOutputStream();
+        final AtomicBoolean closed = new AtomicBoolean(false);
+        os = new ByteArrayOutputStream() {
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
         try (XContentGenerator generator = xcontentType().xContent().createGenerator(os)) {
             generator.writeStartObject();
             generator.writeFieldName("test");
             generator.writeRawValue(new BytesArray(rawData).streamInput(), source.type());
+            assertFalse("Generator should not have closed the output stream", closed.get());
             generator.writeEndObject();
         }
 
@@ -1169,16 +1168,17 @@ public abstract class BaseXContentTestCase extends ESTestCase {
             {
                 NamedObjectNotFoundException e = expectThrows(NamedObjectNotFoundException.class,
                     () -> p.namedObject(Object.class, "unknown", null));
-                assertThat(e.getMessage(), endsWith("unable to parse Object with name [unknown]: parser not found"));
+                assertThat(e.getMessage(), endsWith("unknown field [unknown]"));
+                assertThat(e.getCandidates(), containsInAnyOrder("test1", "test2", "deprecated", "str"));
             }
             {
-                Exception e = expectThrows(NamedObjectNotFoundException.class, () -> p.namedObject(String.class, "doesn't matter", null));
+                Exception e = expectThrows(XContentParseException.class, () -> p.namedObject(String.class, "doesn't matter", null));
                 assertEquals("unknown named object category [java.lang.String]", e.getMessage());
             }
         }
         try (XContentParser emptyRegistryParser = xcontentType().xContent()
             .createParser(NamedXContentRegistry.EMPTY, DeprecationHandler.THROW_UNSUPPORTED_OPERATION, new byte[] {})) {
-            Exception e = expectThrows(NamedObjectNotFoundException.class,
+            Exception e = expectThrows(XContentParseException.class,
                 () -> emptyRegistryParser.namedObject(String.class, "doesn't matter", null));
             assertEquals("named objects are not supported for this parser", e.getMessage());
         }
@@ -1205,11 +1205,6 @@ public abstract class BaseXContentTestCase extends ESTestCase {
     private static void expectNonNullFieldException(ThrowingRunnable runnable) {
         IllegalArgumentException e = expectThrows(IllegalArgumentException.class, runnable);
         assertThat(e.getMessage(), containsString("Field name cannot be null"));
-    }
-
-    private static void expectNonNullFormatterException(ThrowingRunnable runnable) {
-        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, runnable);
-        assertThat(e.getMessage(), containsString("DateTimeFormatter cannot be null"));
     }
 
     private static void expectObjectException(ThrowingRunnable runnable) {

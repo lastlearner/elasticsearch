@@ -1,30 +1,20 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client;
+
+import org.apache.http.HttpHost;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-
-import org.apache.http.HttpHost;
+import java.util.TreeSet;
 
 /**
  * Metadata about an {@link HttpHost} running Elasticsearch.
@@ -175,42 +165,35 @@ public class Node {
      * Role information about an Elasticsearch process.
      */
     public static final class Roles {
-        private final boolean masterEligible;
-        private final boolean data;
-        private final boolean ingest;
 
-        public Roles(boolean masterEligible, boolean data, boolean ingest) {
-            this.masterEligible = masterEligible;
-            this.data = data;
-            this.ingest = ingest;
+        private final Set<String> roles;
+
+        public Roles(final Set<String> roles) {
+            this.roles = new TreeSet<>(roles);
         }
 
         /**
          * Teturns whether or not the node <strong>could</strong> be elected master.
          */
         public boolean isMasterEligible() {
-            return masterEligible;
+            return roles.contains("master");
         }
         /**
          * Teturns whether or not the node stores data.
          */
         public boolean isData() {
-            return data;
+            return roles.contains("data");
         }
         /**
          * Teturns whether or not the node runs ingest pipelines.
          */
         public boolean isIngest() {
-            return ingest;
+            return roles.contains("ingest");
         }
 
         @Override
         public String toString() {
-            StringBuilder result = new StringBuilder(3);
-            if (masterEligible) result.append('m');
-            if (data) result.append('d');
-            if (ingest) result.append('i');
-            return result.toString();
+            return String.join(",", roles);
         }
 
         @Override
@@ -219,14 +202,13 @@ public class Node {
                 return false;
             }
             Roles other = (Roles) obj;
-            return masterEligible == other.masterEligible
-                && data == other.data
-                && ingest == other.ingest;
+            return roles.equals(other.roles);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(masterEligible, data, ingest);
+            return roles.hashCode();
         }
+
     }
 }

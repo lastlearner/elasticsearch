@@ -1,27 +1,16 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.painless;
 
 import org.elasticsearch.common.SuppressForbidden;
-import org.elasticsearch.painless.Locals.LocalMethod;
 import org.elasticsearch.painless.lookup.PainlessLookup;
+import org.elasticsearch.painless.symbol.FunctionTable;
 
 import java.lang.invoke.CallSite;
 import java.lang.invoke.MethodHandle;
@@ -107,21 +96,23 @@ public final class DefBootstrap {
         static final int MAX_DEPTH = 5;
 
         private final PainlessLookup painlessLookup;
-        private final Map<String, LocalMethod> localMethods;
+        private final FunctionTable functions;
+        private final Map<String, Object> constants;
         private final MethodHandles.Lookup methodHandlesLookup;
         private final String name;
         private final int flavor;
         private final Object[] args;
         int depth; // pkg-protected for testing
 
-        PIC(PainlessLookup painlessLookup, Map<String, LocalMethod> localMethods,
+        PIC(PainlessLookup painlessLookup, FunctionTable functions, Map<String, Object> constants,
                 MethodHandles.Lookup methodHandlesLookup, String name, MethodType type, int initialDepth, int flavor, Object[] args) {
             super(type);
             if (type.parameterType(0) != Object.class) {
                 throw new BootstrapMethodError("The receiver type (1st arg) of invokedynamic descriptor must be Object.");
             }
             this.painlessLookup = painlessLookup;
-            this.localMethods = localMethods;
+            this.functions = functions;
+            this.constants = constants;
             this.methodHandlesLookup = methodHandlesLookup;
             this.name = name;
             this.flavor = flavor;
@@ -149,7 +140,7 @@ public final class DefBootstrap {
         private MethodHandle lookup(int flavor, String name, Class<?> receiver) throws Throwable {
             switch(flavor) {
                 case METHOD_CALL:
-                    return Def.lookupMethod(painlessLookup, localMethods, methodHandlesLookup, type(), receiver, name, args);
+                    return Def.lookupMethod(painlessLookup, functions, constants, methodHandlesLookup, type(), receiver, name, args);
                 case LOAD:
                     return Def.lookupGetter(painlessLookup, receiver, name);
                 case STORE:
@@ -161,7 +152,7 @@ public final class DefBootstrap {
                 case ITERATOR:
                     return Def.lookupIterator(receiver);
                 case REFERENCE:
-                    return Def.lookupReference(painlessLookup, localMethods, methodHandlesLookup, (String) args[0], receiver, name);
+                    return Def.lookupReference(painlessLookup, functions, constants, methodHandlesLookup, (String) args[0], receiver, name);
                 case INDEX_NORMALIZE:
                     return Def.lookupIndexNormalize(receiver);
                 default: throw new AssertionError();
@@ -437,7 +428,7 @@ public final class DefBootstrap {
      * see https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.invokedynamic
      */
     @SuppressWarnings("unchecked")
-    public static CallSite bootstrap(PainlessLookup painlessLookup, Map<String, LocalMethod> localMethods,
+    public static CallSite bootstrap(PainlessLookup painlessLookup, FunctionTable functions, Map<String, Object> constants,
             MethodHandles.Lookup methodHandlesLookup, String name, MethodType type, int initialDepth, int flavor, Object... args) {
         // validate arguments
         switch(flavor) {
@@ -457,7 +448,7 @@ public final class DefBootstrap {
                 if (args.length != numLambdas + 1) {
                     throw new BootstrapMethodError("Illegal number of parameters: expected " + numLambdas + " references");
                 }
-                return new PIC(painlessLookup, localMethods, methodHandlesLookup, name, type, initialDepth, flavor, args);
+                return new PIC(painlessLookup, functions, constants, methodHandlesLookup, name, type, initialDepth, flavor, args);
             case LOAD:
             case STORE:
             case ARRAY_LOAD:
@@ -467,7 +458,7 @@ public final class DefBootstrap {
                 if (args.length > 0) {
                     throw new BootstrapMethodError("Illegal static bootstrap parameters for flavor: " + flavor);
                 }
-                return new PIC(painlessLookup, localMethods, methodHandlesLookup, name, type, initialDepth, flavor, args);
+                return new PIC(painlessLookup, functions, constants, methodHandlesLookup, name, type, initialDepth, flavor, args);
             case REFERENCE:
                 if (args.length != 1) {
                     throw new BootstrapMethodError("Invalid number of parameters for reference call");
@@ -475,7 +466,7 @@ public final class DefBootstrap {
                 if (args[0] instanceof String == false) {
                     throw new BootstrapMethodError("Illegal parameter for reference call: " + args[0]);
                 }
-                return new PIC(painlessLookup, localMethods, methodHandlesLookup, name, type, initialDepth, flavor, args);
+                return new PIC(painlessLookup, functions, constants, methodHandlesLookup, name, type, initialDepth, flavor, args);
 
             // operators get monomorphic cache, with a generic impl for a fallback
             case UNARY_OPERATOR:

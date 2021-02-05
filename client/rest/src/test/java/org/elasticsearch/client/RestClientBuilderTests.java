@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.client;
@@ -26,8 +15,10 @@ import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.http.message.BasicHeader;
 
 import java.io.IOException;
+import java.util.Base64;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
@@ -156,6 +147,64 @@ public class RestClientBuilderTests extends RestClientTestCase {
         }
         try (RestClient restClient = builder.build()) {
             assertNotNull(restClient);
+        }
+    }
+
+    public void testBuildCloudId() throws IOException {
+        String host = "us-east-1.aws.found.io";
+        String esId = "elasticsearch";
+        String kibanaId = "kibana";
+        String toEncode = host + "$" + esId + "$" + kibanaId;
+        String encodedId = Base64.getEncoder().encodeToString(toEncode.getBytes(UTF8));
+        assertNotNull(RestClient.builder(encodedId));
+        assertNotNull(RestClient.builder("humanReadable:" + encodedId));
+
+        String badId = Base64.getEncoder().encodeToString("foo$bar".getBytes(UTF8));
+        try {
+            RestClient.builder(badId);
+            fail("should have failed");
+        } catch (IllegalStateException e) {
+            assertEquals("cloudId " + badId + " did not decode to a cluster identifier correctly", e.getMessage());
+        }
+
+        try {
+            RestClient.builder(badId + ":");
+            fail("should have failed");
+        } catch (IllegalStateException e) {
+            assertEquals("cloudId " + badId + ":" + " must begin with a human readable identifier followed by a colon", e.getMessage());
+        }
+
+        RestClient client = RestClient.builder(encodedId).build();
+        assertThat(client.getNodes().size(), equalTo(1));
+        assertThat(client.getNodes().get(0).getHost().getHostName(), equalTo(esId + "." + host));
+        assertThat(client.getNodes().get(0).getHost().getPort(), equalTo(443));
+        assertThat(client.getNodes().get(0).getHost().getSchemeName(), equalTo("https"));
+        client.close();
+    }
+
+    public void testBuildCloudIdWithPort() throws IOException {
+        String host = "us-east-1.aws.found.io";
+        String esId = "elasticsearch";
+        String kibanaId = "kibana";
+        String port = "9443";
+        String toEncode = host + ":" + port + "$" + esId + "$" + kibanaId;
+        String encodedId = Base64.getEncoder().encodeToString(toEncode.getBytes(UTF8));
+
+        RestClient client = RestClient.builder("humanReadable:" + encodedId).build();
+        assertThat(client.getNodes().size(), equalTo(1));
+        assertThat(client.getNodes().get(0).getHost().getPort(), equalTo(9443));
+        assertThat(client.getNodes().get(0).getHost().getHostName(), equalTo(esId + "." + host));
+        assertThat(client.getNodes().get(0).getHost().getSchemeName(), equalTo("https"));
+        client.close();
+
+        toEncode = host + ":" + "123:foo" + "$" + esId + "$" + kibanaId;
+        encodedId = Base64.getEncoder().encodeToString(toEncode.getBytes(UTF8));
+
+        try {
+            RestClient.builder("humanReadable:" + encodedId);
+            fail("should have failed");
+        } catch (IllegalStateException e) {
+            assertEquals("cloudId " + encodedId + " does not contain a valid port number", e.getMessage());
         }
     }
 

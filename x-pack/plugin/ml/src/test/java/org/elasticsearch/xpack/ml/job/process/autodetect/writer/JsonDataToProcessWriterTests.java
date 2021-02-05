@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.job.process.autodetect.writer;
 
@@ -106,7 +107,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         expectedRecords.add(new String[]{"2", "2.0", ""});
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndCategorization() throws Exception {
@@ -124,7 +125,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         JsonDataToProcessWriter writer = createWriter();
         writer.writeHeader();
         try (CategorizationAnalyzer categorizationAnalyzer =
-                     new CategorizationAnalyzer(analysisRegistry, environment, analysisConfig.getCategorizationAnalyzerConfig())) {
+                     new CategorizationAnalyzer(analysisRegistry, analysisConfig.getCategorizationAnalyzerConfig())) {
             writer.write(inputStream, categorizationAnalyzer, XContentType.JSON, (r, e) -> {});
         }
         verify(dataCountsReporter, times(1)).startNewIncrementalCount();
@@ -142,7 +143,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         }
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndTimestampsAreOutOfOrder() throws Exception {
@@ -164,7 +165,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
 
         verify(dataCountsReporter, times(2)).reportOutOfOrderRecord(2);
         verify(dataCountsReporter, never()).reportLatestTimeIncrementalStats(anyLong());
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndSomeTimestampsWithinLatencySomeOutOfOrder() throws Exception {
@@ -195,7 +196,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
 
         verify(dataCountsReporter, times(1)).reportOutOfOrderRecord(2);
         verify(dataCountsReporter, never()).reportLatestTimeIncrementalStats(anyLong());
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenMalformedJsonWithoutNestedLevels() throws Exception {
@@ -223,7 +224,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         assertWrittenRecordsEqualTo(expectedRecords);
 
         verify(dataCountsReporter).reportMissingFields(1);
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenMalformedJsonWithNestedLevels()
@@ -251,7 +252,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         expectedRecords.add(new String[]{"3", "3.0", ""});
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenMalformedJsonThatNeverRecovers()
@@ -293,7 +294,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         expectedRecords.add(new String[]{"2", "2.0", ""});
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenJsonWithMissingFields() throws Exception {
@@ -330,7 +331,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         verify(dataCountsReporter, times(1)).reportRecordWritten(1, 3000);
         verify(dataCountsReporter, times(1)).reportRecordWritten(1, 4000);
         verify(dataCountsReporter, times(1)).reportDateParseError(0);
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_Smile() throws Exception {
@@ -367,7 +368,7 @@ public class JsonDataToProcessWriterTests extends ESTestCase {
         expectedRecords.add(new String[]{"2", "2.0", ""});
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     private static InputStream createInputStream(String input) {

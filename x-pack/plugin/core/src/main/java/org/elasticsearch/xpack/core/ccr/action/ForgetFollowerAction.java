@@ -1,13 +1,14 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.ccr.action;
 
-import org.elasticsearch.action.Action;
 import org.elasticsearch.action.ActionRequestValidationException;
+import org.elasticsearch.action.ActionType;
 import org.elasticsearch.action.support.broadcast.BroadcastRequest;
 import org.elasticsearch.action.support.broadcast.BroadcastResponse;
 import org.elasticsearch.common.ParseField;
@@ -19,18 +20,13 @@ import org.elasticsearch.common.xcontent.XContentParser;
 import java.io.IOException;
 import java.util.Objects;
 
-public class ForgetFollowerAction extends Action<BroadcastResponse> {
+public class ForgetFollowerAction extends ActionType<BroadcastResponse> {
 
     public static final String NAME = "indices:admin/xpack/ccr/forget_follower";
     public static final ForgetFollowerAction INSTANCE = new ForgetFollowerAction();
 
     private ForgetFollowerAction() {
-        super(NAME);
-    }
-
-    @Override
-    public BroadcastResponse newResponse() {
-        return new BroadcastResponse();
+        super(NAME, BroadcastResponse::new);
     }
 
     /**
@@ -115,8 +111,13 @@ public class ForgetFollowerAction extends Action<BroadcastResponse> {
             return leaderIndex;
         }
 
-        public Request() {
-
+        public Request(StreamInput in) throws IOException {
+            super(in);
+            followerCluster = in.readString();
+            leaderIndex = in.readString();
+            leaderRemoteCluster = in.readString();
+            followerIndex = in.readString();
+            followerIndexUUID = in.readString();
         }
 
         /**
@@ -142,15 +143,6 @@ public class ForgetFollowerAction extends Action<BroadcastResponse> {
             this.followerIndexUUID = Objects.requireNonNull(followerIndexUUID);
         }
 
-        public Request(final StreamInput in) throws IOException {
-            super.readFrom(in);
-            followerCluster = in.readString();
-            leaderIndex = in.readString();
-            leaderRemoteCluster = in.readString();
-            followerIndex = in.readString();
-            followerIndexUUID = in.readString();
-        }
-
         @Override
         public void writeTo(StreamOutput out) throws IOException {
             super.writeTo(out);
@@ -164,6 +156,11 @@ public class ForgetFollowerAction extends Action<BroadcastResponse> {
         @Override
         public ActionRequestValidationException validate() {
             return null;
+        }
+
+        @Override
+        public boolean includeDataStreams() {
+            return false;
         }
 
     }

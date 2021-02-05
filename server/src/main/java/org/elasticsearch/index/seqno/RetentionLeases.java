@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.index.seqno;
@@ -25,9 +14,10 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.xcontent.ConstructingObjectParser;
 import org.elasticsearch.common.xcontent.ToXContent;
+import org.elasticsearch.common.xcontent.ToXContentFragment;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.gateway.MetaDataStateFormat;
+import org.elasticsearch.gateway.MetadataStateFormat;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -42,7 +32,7 @@ import java.util.stream.Collectors;
  * Represents a versioned collection of retention leases. We version the collection of retention leases to ensure that sync requests that
  * arrive out of order on the replica, using the version to ensure that older sync requests are rejected.
  */
-public class RetentionLeases implements ToXContent, Writeable {
+public class RetentionLeases implements ToXContentFragment, Writeable {
 
     private final long primaryTerm;
 
@@ -69,13 +59,27 @@ public class RetentionLeases implements ToXContent, Writeable {
 
     /**
      * Checks if this retention leases collection supersedes the specified retention leases collection. A retention leases collection
-     * supersedes another retention leases collection if its primary term is higher, or if for equal primary terms its version is higher
+     * supersedes another retention leases collection if its primary term is higher, or if for equal primary terms its version is higher.
      *
      * @param that the retention leases collection to test against
      * @return true if this retention leases collection supercedes the specified retention lease collection, otherwise false
      */
-    public boolean supersedes(final RetentionLeases that) {
-        return primaryTerm > that.primaryTerm || primaryTerm == that.primaryTerm && version > that.version;
+    boolean supersedes(final RetentionLeases that) {
+        return supersedes(that.primaryTerm, that.version);
+    }
+
+    /**
+     * Checks if this retention leases collection would supersede a retention leases collection with the specified primary term and version.
+     * A retention leases collection supersedes another retention leases collection if its primary term is higher, or if for equal primary
+     * terms its version is higher.
+     *
+     * @param primaryTerm the primary term
+     * @param version     the version
+     * @return true if this retention leases collection would supercedes a retention lease collection with the specified primary term and
+     * version
+     */
+    boolean supersedes(final long primaryTerm, final long version) {
+        return this.primaryTerm > primaryTerm || this.primaryTerm == primaryTerm && this.version > version;
     }
 
     private final Map<String, RetentionLease> leases;
@@ -167,7 +171,7 @@ public class RetentionLeases implements ToXContent, Writeable {
     private static final ParseField LEASES_FIELD = new ParseField("leases");
 
     @SuppressWarnings("unchecked")
-    private static ConstructingObjectParser<RetentionLeases, Void> PARSER = new ConstructingObjectParser<>(
+    private static final ConstructingObjectParser<RetentionLeases, Void> PARSER = new ConstructingObjectParser<>(
             "retention_leases",
             (a) -> new RetentionLeases((Long) a[0], (Long) a[1], (Collection<RetentionLease>) a[2]));
 
@@ -202,7 +206,7 @@ public class RetentionLeases implements ToXContent, Writeable {
         return PARSER.apply(parser, null);
     }
 
-    static final MetaDataStateFormat<RetentionLeases> FORMAT = new MetaDataStateFormat<RetentionLeases>("retention-leases-") {
+    static final MetadataStateFormat<RetentionLeases> FORMAT = new MetadataStateFormat<>("retention-leases-") {
 
         @Override
         public void toXContent(final XContentBuilder builder, final RetentionLeases retentionLeases) throws IOException {
@@ -259,14 +263,5 @@ public class RetentionLeases implements ToXContent, Writeable {
                         LinkedHashMap::new));
     }
 
-    /**
-     * A utility method to convert a retention lease collection to a map from retention lease ID to retention lease.
-     *
-     * @param retentionLeases the retention lease collection
-     * @return the map from retention lease ID to retention lease
-     */
-    static Map<String, RetentionLease> toMap(final RetentionLeases retentionLeases) {
-        return retentionLeases.leases;
-    }
-
 }
+

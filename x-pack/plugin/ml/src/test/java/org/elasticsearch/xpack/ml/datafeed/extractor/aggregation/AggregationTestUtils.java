@@ -1,16 +1,19 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.datafeed.extractor.aggregation;
 
+import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.bucket.SingleBucketAggregation;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.aggregations.metrics.GeoCentroid;
 import org.elasticsearch.search.aggregations.metrics.NumericMetricsAggregation;
 import org.elasticsearch.search.aggregations.metrics.Max;
 import org.elasticsearch.search.aggregations.metrics.Percentile;
@@ -70,6 +73,15 @@ public final class AggregationTestUtils {
         return max;
     }
 
+    static GeoCentroid createGeoCentroid(String name, long count, double lat, double lon) {
+        GeoCentroid centroid = mock(GeoCentroid.class);
+        when(centroid.count()).thenReturn(count);
+        when(centroid.getName()).thenReturn(name);
+        GeoPoint point = count > 0 ? new GeoPoint(lat, lon) : null;
+        when(centroid.centroid()).thenReturn(point);
+        return centroid;
+    }
+
     static NumericMetricsAggregation.SingleValue createSingleValue(String name, double value) {
         NumericMetricsAggregation.SingleValue singleValue = mock(NumericMetricsAggregation.SingleValue.class);
         when(singleValue.getName()).thenReturn(name);
@@ -93,7 +105,7 @@ public final class AggregationTestUtils {
                 for (Map.Entry<String, Double> keyValue : term.values.entrySet()) {
                     numericAggs.add(createSingleValue(keyValue.getKey(), keyValue.getValue()));
                 }
-                if (!numericAggs.isEmpty()) {
+                if (numericAggs.isEmpty() == false) {
                     Aggregations aggs = createAggs(numericAggs);
                     when(bucket.getAggregations()).thenReturn(aggs);
                 }

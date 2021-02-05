@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.monitoring.collector.ccr;
 
@@ -148,7 +149,7 @@ public class AutoFollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase
         Map<String, Object> template =
             XContentHelper.convertToMap(XContentType.JSON.xContent(), MonitoringTemplateUtils.loadTemplate("es"), false);
         Map<?, ?> autoFollowStatsMapping =
-            (Map<?, ?>) XContentMapValues.extractValue("mappings.doc.properties.ccr_auto_follow_stats.properties", template);
+            (Map<?, ?>) XContentMapValues.extractValue("mappings._doc.properties.ccr_auto_follow_stats.properties", template);
 
         assertThat(serializedStatus.size(), equalTo(autoFollowStatsMapping.size()));
         for (Map.Entry<String, Object> entry : serializedStatus.entrySet()) {

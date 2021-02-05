@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.deprecation;
@@ -10,8 +11,9 @@ import org.elasticsearch.Version;
 import org.elasticsearch.action.FailedNodeException;
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.node.DiscoveryNode;
+import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.transport.TransportAddress;
-import org.elasticsearch.test.AbstractStreamableTestCase;
+import org.elasticsearch.test.AbstractWireSerializingTestCase;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -21,11 +23,11 @@ import java.util.Collections;
 import java.util.List;
 
 public class NodesDeprecationCheckResponseTests
-    extends AbstractStreamableTestCase<NodesDeprecationCheckResponse> {
+    extends AbstractWireSerializingTestCase<NodesDeprecationCheckResponse> {
 
     @Override
-    protected NodesDeprecationCheckResponse createBlankInstance() {
-        return new NodesDeprecationCheckResponse();
+    protected Writeable.Reader<NodesDeprecationCheckResponse> instanceReader() {
+        return NodesDeprecationCheckResponse::new;
     }
 
     @Override

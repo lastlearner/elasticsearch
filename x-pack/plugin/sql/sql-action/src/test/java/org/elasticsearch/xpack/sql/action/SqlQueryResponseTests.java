@@ -1,17 +1,19 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.sql.action;
 
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesReference;
+import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.test.AbstractStreamableXContentTestCase;
+import org.elasticsearch.test.AbstractSerializingTestCase;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.xpack.sql.proto.ColumnInfo;
 import org.elasticsearch.xpack.sql.proto.Mode;
@@ -25,10 +27,11 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import static org.elasticsearch.common.xcontent.ToXContent.EMPTY_PARAMS;
-import static org.hamcrest.Matchers.hasSize;
 import static org.elasticsearch.xpack.sql.action.AbstractSqlQueryRequest.CURSOR;
+import static org.elasticsearch.xpack.sql.proto.SqlVersion.DATE_NANOS_SUPPORT_VERSION;
+import static org.hamcrest.Matchers.hasSize;
 
-public class SqlQueryResponseTests extends AbstractStreamableXContentTestCase<SqlQueryResponse> {
+public class SqlQueryResponseTests extends AbstractSerializingTestCase<SqlQueryResponse> {
 
     static String randomStringCursor() {
         return randomBoolean() ? "" : randomAlphaOfLength(10);
@@ -37,6 +40,11 @@ public class SqlQueryResponseTests extends AbstractStreamableXContentTestCase<Sq
     @Override
     protected SqlQueryResponse createTestInstance() {
         return createRandomInstance(randomStringCursor(), randomFrom(Mode.values()), randomBoolean());
+    }
+
+    @Override
+    protected Writeable.Reader<SqlQueryResponse> instanceReader() {
+        return SqlQueryResponse::new;
     }
 
     public static SqlQueryResponse createRandomInstance(String cursor, Mode mode, boolean columnar) {
@@ -60,7 +68,7 @@ public class SqlQueryResponseTests extends AbstractStreamableXContentTestCase<Sq
                 rowCount = columnCount;
                 columnCount = temp;
             }
-            
+
             rows = new ArrayList<>(rowCount);
             for (int r = 0; r < rowCount; r++) {
                 List<Object> row = new ArrayList<>(rowCount);
@@ -75,12 +83,7 @@ public class SqlQueryResponseTests extends AbstractStreamableXContentTestCase<Sq
                 rows.add(row);
             }
         }
-        return new SqlQueryResponse(cursor, mode, false, columns, rows);
-    }
-
-    @Override
-    protected SqlQueryResponse createBlankInstance() {
-        return new SqlQueryResponse();
+        return new SqlQueryResponse(cursor, mode, DATE_NANOS_SUPPORT_VERSION, false, columns, rows);
     }
 
     public void testToXContent() throws IOException {
@@ -127,6 +130,6 @@ public class SqlQueryResponseTests extends AbstractStreamableXContentTestCase<Sq
     protected SqlQueryResponse doParseInstance(XContentParser parser) {
         org.elasticsearch.xpack.sql.proto.SqlQueryResponse response =
             org.elasticsearch.xpack.sql.proto.SqlQueryResponse.fromXContent(parser);
-        return new SqlQueryResponse(response.cursor(), Mode.JDBC, false, response.columns(), response.rows());
+        return new SqlQueryResponse(response.cursor(), Mode.JDBC, DATE_NANOS_SUPPORT_VERSION, false, response.columns(), response.rows());
     }
 }

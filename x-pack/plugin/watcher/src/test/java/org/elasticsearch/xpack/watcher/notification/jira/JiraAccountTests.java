@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.notification.jira;
 
@@ -78,6 +79,16 @@ public class JiraAccountTests extends ESTestCase {
         Settings settings4 = Settings.builder().setSecureSettings(secureSettings).build();
         e = expectThrows(SettingsException.class, () -> new JiraAccount("test", settings4, null));
         assertThat(e.getMessage(), containsString("invalid jira [test] account settings. missing required [secure_password] setting"));
+    }
+
+    public void testInvalidSchemeUrl() throws Exception{
+        MockSecureSettings secureSettings = new MockSecureSettings();
+        secureSettings.setString(JiraAccount.SECURE_URL_SETTING.getKey(),"test"); //Setting test as invalid scheme url
+        secureSettings.setString(JiraAccount.SECURE_USER_SETTING.getKey(), "foo");
+        secureSettings.setString(JiraAccount.SECURE_PASSWORD_SETTING.getKey(), "password");
+        Settings settings = Settings.builder().setSecureSettings(secureSettings).build();
+        SettingsException e = expectThrows(SettingsException.class, () -> new JiraAccount("test", settings, null));
+        assertThat(e.getMessage(), containsString("invalid jira [test] account settings. invalid [secure_url] setting"));
     }
 
     public void testUnsecureAccountUrl() throws Exception {
